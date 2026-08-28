@@ -1,0 +1,384 @@
+/* ===========================================================================
+   wall.css - the house type and surface tokens for every page on the wall.
+
+   WHY THIS FILE EXISTS. Every page used to size its own text in
+   clamp(MIN, N vw, MAX), and on a 3840-wide screen the vw term always exceeds
+   MAX - so MAX won, every time, and the responsive sizing was dead at exactly
+   the size it was written for. Measured on the television: 45 of about 70 text
+   elements were below the threshold of legibility from the sofa, including
+   every page's explanatory caption. See DESIGN_STANDARDS.md for the full
+   argument and TEXT_AUDIT.md for the measurements.
+
+   THE UNIT. --wu is one WALL PIXEL: the width of a pixel on the television,
+   expressed as a fraction of whatever screen the page is actually on. Write
+   sizes as a count of wall pixels and they mean the same physical size on the
+   wall regardless of the browser window, and shrink honestly on a laptop -
+   which is correct, because a laptop is viewed at arm's length rather than
+   from across a room.
+
+   NEVER write clamp() for a font size again. The floors here are max(), which
+   cannot silently cap the wall the way a clamp ceiling did.
+
+   THE ARITHMETIC, so the numbers below can be checked rather than trusted:
+     panel      55 inch 16:9  ->  1219 mm wide
+     raster     3840 CSS px, devicePixelRatio 1, no scale factor
+     therefore  1 CSS px = 0.3174 mm on the glass
+     cap height ~0.70 x font-size
+     angle      arcmin = 0.70 * px * 0.3174 / viewing_mm * 3437.75
+   A paperback at 40 cm subtends about 23 arcmin. Broadcast "glanceable" is
+   about 13. Below roughly 6 arcmin nobody reads anything from a sofa.
+   =========================================================================== */
+
+:root{
+  /* ---- the distance knob ----
+     JOE MEASURED THE SOFA AT 3.5 m (2026-08-24). The whole ladder is derived
+     for 3.0 m and scaled by this one number, so if the furniture moves, change
+     this and nothing else. --ts = distance / 3.0. */
+  --ts: 1.167;
+
+  /* One wall pixel. 1 at 3840 wide, 1/3 on a 1280 laptop. */
+  --wu: calc(100vw / 3840);
+
+  /* ---- THE LADDER ----
+     Wall px at 3840, and what each subtends at 3.5 m.
+       t0 187  = 15.5 arcmin   the one big number, when a page has one
+       t1  93  =  7.7          the piece's title
+       t2  68  =  5.7          the sentence that says what this is
+       t3  51  =  4.2          a live figure
+       t4  37  =  3.1          the label beside a figure; the sofa FLOOR
+       t5  30  =  2.5          a credit line; the wall floor, in-picture only
+     The floors are for laptops, where the same page is read at arm's length. */
+  --t0: max(30px, calc(187 * var(--ts) * var(--wu)));
+  --t1: max(22px, calc( 93 * var(--ts) * var(--wu)));
+  --t2: max(16px, calc( 68 * var(--ts) * var(--wu)));
+  --t3: max(14px, calc( 51 * var(--ts) * var(--wu)));
+  --t4: max(12px, calc( 37 * var(--ts) * var(--wu)));
+  --t5: max(10px, calc( 30 * var(--ts) * var(--wu)));
+  /* Diagnostics are read from a laptop at arm's length and do NOT scale with
+     the sofa. This is the one tier allowed to be small on the wall, because it
+     is not for the wall. */
+  --td: 20px;
+
+  /* ---- ink ---- */
+  --ink:      rgba(238,244,252,.95);
+  --ink-2:    rgba(206,220,240,.80);
+  --ink-lt:   rgba(46,38,28,.95);      /* on light ground: tree, hike topo */
+  --ink-lt-2: rgba(96,80,60,.80);
+
+  /* ---- surfaces ----
+     Plate alpha is measured, not chosen: rgba(8,11,18,a) composited over white
+     artwork against --ink gives 3.9:1 at a=.55, 5.1 at .62, 6.6 at .70. Below
+     .70 a caption over pale ground fails, which is exactly how descent's
+     caption failed over gravel. */
+  --plate:       rgba(8,11,18,.70);
+  --plate-solid: rgba(8,11,18,.88);
+  --plate-lt:    rgba(250,246,236,.80);
+  --edge:        rgba(255,255,255,.16);
+  --edge-lt:     rgba(120,95,65,.35);
+
+  /* Radius in WALL PX, never em: .7em on a 30 px box and .55em on a 24 px box
+     are the same stated intent and a 60% difference in the drawn curve. That
+     is a named cause of the piecemeal look. */
+  --r:      calc(16 * var(--wu));
+  --r-pill: 9999px;
+  --pad:      calc(20 * var(--wu)) calc(30 * var(--wu));
+  --pad-chip: calc(14 * var(--wu)) calc(26 * var(--wu));
+  --shadow: 0 calc(10 * var(--wu)) calc(50 * var(--wu)) rgba(0,0,0,.55);
+
+  /* ---- safe rectangle ----
+     Televisions overscan and LG's Just Scan resets itself on an HDMI source
+     change. ALL TEXT lives inside this; artwork, scrims and bars may bleed to
+     the edge. That distinction is what stops the margin costing the pictures
+     anything. */
+  --safe-x: calc(134 * var(--wu));
+  --safe-y: calc( 76 * var(--wu));
+
+  /* The bottom band a caption occupies. A page uses BAND or a fitted plate,
+     never both, and no instrument draws inside a reserved band. */
+  --band: calc(200 * var(--ts) * var(--wu));
+
+  --font-ui:  ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-num: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* ---- the seven roles -------------------------------------------------- */
+.r-name  { font: 300 var(--t1)/1.15 var(--font-ui); letter-spacing:.20em;
+           text-transform:uppercase; color:var(--ink); }
+.r-lead  { font: 300 var(--t2)/1.42 var(--font-ui); letter-spacing:.01em;
+           color:var(--ink); max-width:56ch; }
+.r-figure{ font: 300 var(--t3)/1.15 var(--font-ui); color:var(--ink);
+           font-variant-numeric:tabular-nums; }
+.r-key   { font: 400 var(--t4)/1.3 var(--font-num); letter-spacing:.14em;
+           text-transform:uppercase; color:var(--ink-2); }
+.r-chip  { font: 400 var(--t4)/1 var(--font-num); letter-spacing:.14em;
+           text-transform:uppercase; color:var(--ink);
+           background:var(--plate); border-radius:var(--r-pill);
+           padding:var(--pad-chip); }
+.r-act   { font: 300 var(--t3)/1.2 var(--font-ui); letter-spacing:.12em;
+           text-transform:uppercase; color:var(--ink); }
+.r-credit{ font: 400 var(--t5)/1.4 var(--font-num); letter-spacing:.04em;
+           color:var(--ink-2); opacity:.72; }
+
+/* ---- surfaces --------------------------------------------------------- */
+.s-panel { background:var(--plate); border:1px solid var(--edge);
+           border-radius:var(--r); padding:var(--pad); box-shadow:var(--shadow); }
+.s-band  { position:fixed; left:0; right:0; bottom:0; pointer-events:none;
+           background:linear-gradient(to top, rgba(3,5,10,.88) 0%,
+                                              rgba(3,5,10,.70) 55%,
+                                              rgba(3,5,10,0) 100%);
+           padding: calc(46 * var(--wu)) var(--safe-x) calc(30 * var(--wu)); }
+
+/* ---- diagnostics ------------------------------------------------------
+   The one tier that is allowed to be unreadable from the sofa, because it is
+   read from a laptop with the keyboard in reach. */
+#info { position:fixed; left:var(--safe-x); bottom:var(--safe-y);
+        z-index:11; display:none; white-space:pre;
+        font:500 var(--td)/1.5 var(--font-num); color:#dfe6ee;
+        background:rgba(0,0,0,.72); padding:.7em 1em; border-radius:.4em;
+        border:1px solid rgba(255,255,255,.15); }
+body.showinfo #info { display:block; }
+
+/* ===========================================================================
+   THE SURFACES.  Added 2026-08-24 with the Episode review (WALL_REVIEW.md).
+
+   The wall used to give every page a permanent caption band, and a permanent
+   sentence on a changing picture is a sentence about nothing in particular:
+   tree said the same words three metres of growth apart, surnames said "Eight
+   names left" above a line reading "3 surnames". Language now belongs to an
+   EPISODE rather than to a page. It arrives, does its job and dissolves.
+
+   There are five places language may appear and no others. Four are here; the
+   fifth is #info above, which is deliberately not sofa-legible because it is
+   read from a laptop.
+   =========================================================================== */
+
+/* ---- THE LANE -----------------------------------------------------------
+   Running prose, and only running prose: the sentence naming the mechanism at
+   an episode's start, and the whole-run figures at its close. The same address
+   on all thirteen pages so the eye learns one place and stops sweeping.
+
+   THE PLATE IS FITTED. A full-width scrim is what made every page look like it
+   had a chrome bar bolted to the bottom, and it darkened artwork nobody was
+   reading over. This pill is as wide as its own sentence and absent when there
+   is no sentence.
+
+   NO INSTRUMENT MAY ENTER THIS BAND. gravity's mass bar, weather's timeline
+   and precip's strip all move to the TOP edge instead. The Lane's height is
+   variable by design - one line or two, a name beat or a figures beat - so no
+   fixed vertical offset can clear it, and computing one is exactly the bug
+   that put gravity's caption inside its own mass bar. */
+.lane{
+  position:fixed; left:var(--safe-x); right:var(--safe-x); bottom:var(--safe-y);
+  z-index:8; display:flex; justify-content:center; pointer-events:none;
+  opacity:0; transition:opacity 1.2s ease-in-out;
+}
+.lane.show{ opacity:1; transition-duration:.6s; }
+.lane > span{
+  display:inline-block; max-width:56ch; text-align:center;
+  font:300 var(--t2)/1.42 var(--font-ui); letter-spacing:.01em; color:var(--ink);
+  /* --plate-solid, not --plate, and a hairline edge.
+     The .70 alpha was measured for CONTRAST and it delivers it - the words are
+     perfectly readable over physarum's net. What it does not deliver is SHAPE:
+     over a busy ground the plate's boundary dissolves and the sentence reads as
+     a smudge on the artwork rather than a card laid on it. The Lane is on
+     screen roughly a third of the time, so it can afford to be a definite
+     object while it is there. The edge is what makes it one. */
+  background:var(--plate-solid); border:1px solid var(--edge);
+  border-radius:var(--r); padding:var(--pad);
+  box-shadow:var(--shadow);
+}
+/* The figures beat at an episode's close: same surface, numeric face. */
+.lane.figures > span{ font-family:var(--font-num); font-size:var(--t3);
+  letter-spacing:.06em; }
+
+/* ---- THE MOMENT ---------------------------------------------------------
+   Four words or fewer naming something that just happened and could not be
+   seen coming. Never a state label for a state the picture already shows, and
+   never on load.
+
+   NOT frame centre by default. On descent the chase camera pins the rider
+   within a couple of hundred pixels of centre all run; on gravity the merged
+   core sits there; on tree the trunk foot is bottom-centre. Pages that can
+   name a subject position pass one and wall.js searches for clear space
+   around it. Frame centre is only the fallback, for pages whose subject is
+   not a place: surnames, reaction, physarum, kiosk, occasion. */
+.moment{
+  position:fixed; z-index:9; pointer-events:none; opacity:0;
+  transform:translate(-50%,-50%);
+  transition:opacity .5s ease-in-out;
+  font:300 var(--t1)/1.2 var(--font-ui); letter-spacing:.14em;
+  text-transform:uppercase; color:var(--ink); text-align:center;
+  text-shadow:0 0 calc(18*var(--wu)) rgba(3,5,10,.95),
+              0 0 calc(46*var(--wu)) rgba(3,5,10,.8);
+}
+.moment.show{ opacity:1; }
+
+/* ---- THE SIGNATURE ------------------------------------------------------
+   Legal attribution and nothing else, ever, on the five pages that owe one.
+   This surface exists because the alternative is pretending the obligation
+   away, and an undesigned leftover credit is precisely how the parameter
+   strip grew the first time.
+
+   It is the one permanent string on the wall, so it takes the same two rules
+   a Mark takes: ink from the page's own ground, and a halo where the ground
+   is quiet or a fitted pill where it is busy - hike's bottom-left is cream
+   topo and precip's can be a saturated radar core. */
+.signature{
+  position:fixed; left:var(--safe-x); bottom:var(--safe-y); z-index:7;
+  pointer-events:none; max-width:60ch;
+  /* Joe's call, 2026-08-26: credits are a courtesy, not information for the
+     viewer, so they drop below the sofa floor on purpose - the one class of
+     text on the wall that is ALLOWED to be unreadable from the couch. */
+  /* Smaller again per Joe (2026-08-26), and never wrapped: a credit that
+     folds to two lines takes twice the room a courtesy deserves. */
+  font:400 calc(22 * var(--wu))/1.4 var(--font-num); letter-spacing:.03em;
+  white-space:nowrap;
+  color:var(--ink-2);
+  text-shadow:0 0 calc(10*var(--wu)) rgba(3,5,10,.9);
+}
+.signature.plated{ background:var(--plate); border-radius:var(--r-pill);
+  padding:var(--pad-chip); text-shadow:none; }
+/* The Lane is centred and the Signature is left, so they share the bottom
+   line without touching. On a narrow window they would; the Lane wins,
+   because a sentence that is currently being read beats a permanent credit. */
+body.lane-lit .signature{ opacity:.35; transition:opacity .6s; }
+
+/* ---- LIGHT GROUND -------------------------------------------------------
+   Every role class hard-codes near-white ink, which on tree's cream sky and
+   hike's cream topo is an invisible sentence on the two most beautiful pages
+   in the rotation. --ink-lt already shipped in this file and was used by
+   nothing. Set .on-light on the SURFACE, not on each element, and ink, plate
+   and edge all move together. */
+.on-light > span,
+.on-light.moment,
+.on-light.signature{ color:var(--ink-lt); }
+.on-light.lane > span{ background:var(--plate-lt);
+  box-shadow:0 calc(10*var(--wu)) calc(50*var(--wu)) rgba(70,55,35,.28); }
+.on-light.moment{ text-shadow:0 0 calc(18*var(--wu)) rgba(250,246,236,.95),
+                              0 0 calc(46*var(--wu)) rgba(250,246,236,.85); }
+.on-light.signature{ color:var(--ink-lt-2);
+  text-shadow:0 0 calc(10*var(--wu)) rgba(250,246,236,.9); }
+.on-light.signature.plated{ background:var(--plate-lt); text-shadow:none; }
+
+/* ---- RUN-POSITION INSTRUMENTS ------------------------------------------
+   Anything that shows how far through a run you are - gravity's mass bar,
+   weather's timeline, precip's strip - lives at the TOP edge, full width,
+   because the bottom belongs to the Lane. Artwork may bleed under it. */
+.topbar{ position:fixed; left:0; right:0; top:0; z-index:7; pointer-events:none; }
+
+/* ---- THE INSTRUMENT -----------------------------------------------------
+   Added 2026-08-25 after Joe read the wall for a day and corrected the
+   review's central premise.
+
+   THE REVIEW CONFLATED TWO THINGS. It found captions that were WRONG about
+   the picture - surnames' "Eight names left" above a line reading "3
+   surnames", descent's OFF THE BRAKES at 4 mph - and concluded that
+   permanent text was the fault. It was not. Those captions were STATIC:
+   written once and never updated. On both of those pages the permanent LIVE
+   readout was the layer telling the truth, and the prose was the layer
+   lying. The review deleted the reliable layer and kept the unreliable one.
+
+   So: an instrument is permanent and continuously visible, by design. What
+   it may never be is stale. Every value in here is recomputed from the
+   simulation each frame; nothing is written once at startup.
+
+   WHAT MAKES IT NOT PIECEMEAL. One panel per page, one corner, one plate,
+   one internal grid, one set of type roles, shared by every page that has
+   numbers worth reading. The old readouts were not wrong to exist - they
+   were wrong to be invented thirteen times, at thirteen sizes, in thirteen
+   places, with three of them running off the edge of the screen.
+
+   TOP-LEFT, because the bottom band belongs to the transient sentence and
+   that sentence is variable-height by design - computing an offset to clear
+   it is exactly the bug that put gravity's caption inside its own mass bar.
+   The subject of every one of these pictures is centre or lower.
+
+   TWO COLUMNS, because a single stack of eight readable rows is 700 wall px
+   tall and starts to read as a rail again. */
+.instr{
+  position:fixed; top:var(--safe-y); left:var(--safe-x); z-index:9;
+  pointer-events:none; max-width:calc(1150 * var(--wu));
+  background:var(--plate); border:1px solid var(--edge);
+  border-radius:var(--r); padding:var(--pad);
+  box-shadow:var(--shadow);
+  display:flex; flex-direction:column; gap:calc(20 * var(--wu));
+  font-variant-numeric:tabular-nums;
+}
+.instr.tr{ left:auto; right:var(--safe-x); }
+.instr.bl{ top:auto; bottom:var(--safe-y); }
+
+/* The one number the page is most about, if it has one. */
+.instr .hero{ display:flex; align-items:baseline; gap:calc(16 * var(--wu)); flex-wrap:wrap; }
+.instr .hero .hv{ font:300 var(--t1)/1 var(--font-ui); color:var(--ink); }
+.instr .hero .hu{ font:400 var(--t4)/1 var(--font-num); letter-spacing:.14em;
+                  text-transform:uppercase; color:var(--ink-2); }
+
+.instr .grid{ display:grid; grid-template-columns:repeat(2, minmax(0,1fr));
+              gap:calc(16 * var(--wu)) calc(64 * var(--wu)); }
+.instr .grid.one{ grid-template-columns:minmax(0,1fr); }
+.instr .row{ display:flex; flex-direction:column; gap:calc(3 * var(--wu)); }
+.instr .k{ font:400 var(--t4)/1.2 var(--font-num); letter-spacing:.14em;
+           text-transform:uppercase; color:var(--ink-2); white-space:nowrap; }
+.instr .v{ font:300 var(--t3)/1.15 var(--font-ui); color:var(--ink);
+           white-space:nowrap; }
+
+/* A colour key belongs WITH the numbers it explains, not stranded along the
+   bottom edge of the artwork at 14 wall px, which is where all three of
+   plume's legends were. */
+.instr .keys{ display:flex; flex-direction:column; gap:calc(12 * var(--wu)); }
+.instr .keyrow{ display:flex; align-items:center; gap:calc(18 * var(--wu)); }
+/* A row carrying a verdict ground gets the padding that makes the tint read
+   as a deliberate chip rather than a rendering accident. */
+.instr .keyrow.verdict{ padding:calc(10 * var(--wu)) calc(16 * var(--wu));
+  border-radius:calc(10 * var(--wu)); }
+.instr .sw{ width:calc(36 * var(--wu)); height:calc(36 * var(--wu));
+            border-radius:calc(7 * var(--wu)); flex:0 0 auto; }
+.instr .kt{ display:flex; flex-direction:column; gap:calc(4 * var(--wu)); min-width:0; }
+.instr .kv{ font:300 var(--t3)/1.1 var(--font-ui); color:var(--ink); }
+.instr .kn{ font:400 var(--t4)/1.1 var(--font-num); color:var(--ink-2); }
+
+/* Mounted: the panel lives inside a reserved container - plume's rail and
+   band - which already provides the ground, so the panel sheds its plate,
+   border and fixed position. A plate inside a plate is the piecemeal look. */
+.instr.mounted{ position:static; background:none; border:0; box-shadow:none;
+  padding:0; max-width:none; width:100%; }
+/* One wrapping line instead of the two-column grid: a wide flat band. */
+.instr .grid.flow{ display:flex; flex-wrap:wrap; align-items:flex-start;
+  gap:calc(16 * var(--wu)) calc(110 * var(--wu)); }
+.instr .sep{ height:1px; background:var(--edge); margin:calc(2 * var(--wu)) 0; }
+/* A compact colour-ramp key: one row, several swatches, for an ordered scale
+   where the individual steps do not each need a line of their own. plume's
+   "how many clean looks" ramp is the case that asked for it. */
+.instr .strip{ display:flex; flex-direction:column; gap:calc(8 * var(--wu)); }
+/* flex-START, not flex-end: cells whose label is empty (the middle of a
+   low-to-high ramp) are shorter, and bottom-aligning cell ends staggered the
+   swatches into a diagonal. Top-aligned, the colour band reads as one bar
+   with labels hanging under its ends. */
+.instr .strip .sws{ display:flex; gap:calc(6 * var(--wu)); align-items:flex-start; }
+.instr .strip .st{ display:flex; flex-direction:column; align-items:center;
+                   gap:calc(5 * var(--wu)); }
+.instr .strip .st i{ display:block; width:calc(74 * var(--wu));
+                     height:calc(22 * var(--wu)); border-radius:calc(5 * var(--wu)); }
+/* A strip cell keying a map RING rather than painted ground: a hollow
+   circle in the marker's own colour (set inline as border-color). */
+.instr .strip .st i.ring{ width:calc(38 * var(--wu)); height:calc(38 * var(--wu));
+                          border-radius:50%; background:transparent;
+                          border:calc(5 * var(--wu)) solid; }
+.instr .strip .st b{ font:400 var(--t4)/1 var(--font-num); font-weight:400;
+                     color:var(--ink-2); }
+.instr.on-light .strip .st b{ color:var(--ink-lt-2); }
+.instr .cap{ font:400 var(--t4)/1.3 var(--font-num); letter-spacing:.1em;
+             text-transform:uppercase; color:var(--ink-2); }
+/* Courtesy type: attribution inside a panel, same deliberate below-the-floor
+   size as .signature. */
+.instr .fine{ font:400 calc(22 * var(--wu))/1.4 var(--font-num);
+              letter-spacing:.03em; color:var(--ink-2); opacity:.65;
+              text-transform:none; white-space:nowrap; }
+
+/* Light ground: tree's cream sky, hike's topo sheet. */
+.instr.on-light{ background:var(--plate-lt); border-color:var(--edge-lt);
+  box-shadow:0 calc(10*var(--wu)) calc(50*var(--wu)) rgba(70,55,35,.28); }
+.instr.on-light .hv, .instr.on-light .v, .instr.on-light .kv{ color:var(--ink-lt); }
+.instr.on-light .hu, .instr.on-light .k, .instr.on-light .kn,
+.instr.on-light .cap{ color:var(--ink-lt-2); }
+.instr.on-light .sep{ background:var(--edge-lt); }

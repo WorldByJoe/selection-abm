@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Selection</title>
+<!-- ==========================================================================
+  ecology.html - the community-ecology + evolution simulation, on the wall.
+  The MODEL lives in ecology_engine.js (pure, seeded, jsc-testable); this
+  page only steps it and draws it. Joe's spec, 2026-08-28: grass grows on a
+  160x90 grid, four herbivore species start in the four corners, mating
+  requires trait-identity, 5% of births mutate - and everything after that
+  (lineages meeting, booms, busts, the first carnivore) is emergent.
+
+  WHAT THE COLOURS MEAN. Ground green = standing grass. Each animal is
+  coloured by its SPECIES - its exact trait combination - with the same
+  colour in the map, the species table, and the community strip, so a
+  species can be followed across all three. Herbivore species walk a
+  golden-angle hue wheel that skips the red band; every carnivore species
+  is a shade of red: predation should be visible the moment it exists.
+  (Founder-lineage colouring is gone - Joe, 2026-08-28: colour follows what
+  the world becomes, not where it started. Founder traits are RANDOM per
+  world now, drawn 1..6 from the seed.)
+
+  Not in the ring yet - preview with ?pin (or n for a fresh world) until Joe
+  has watched it; then it takes a rotation slot like any other page.
+========================================================================== -->
+<style>
+  body{ margin:0; background:#04070a; overflow:hidden; }
+  #cv{ position:fixed; inset:0; width:100vw; height:100vh; }
+  /* THE RESERVE LAYOUT (plume's idiom, Joe's call 2026-08-28): the map keeps
+     the top-left 84% x 84% - EQUAL fractions, so the 16:9 grid keeps square
+     cells - the right rail holds every text panel, and the bottom band
+     belongs to the community strip. One constant (INSET, in the script)
+     drives these CSS variables AND the map geometry, so they cannot drift. */
+  #rail, #band { box-sizing:border-box; }
+  /* The rail runs a smaller type scale than the wall's default: every panel
+     (stats, species table, foot) must fit the 16% column with room to
+     spare, keeping the whole composition inside one 16:9 frame. Scoped
+     token overrides - descendants pick them up automatically. */
+  #rail{
+    --t0:max(24px, calc(118 * var(--ts) * var(--wu)));
+    --t1:max(17px, calc( 64 * var(--ts) * var(--wu)));
+    --t2:max(13px, calc( 47 * var(--ts) * var(--wu)));
+    --t3:max(12px, calc( 36 * var(--ts) * var(--wu)));
+    --t4:max(10px, calc( 27 * var(--ts) * var(--wu)));
+    --t5:max( 9px, calc( 22 * var(--ts) * var(--wu)));
+  }
+  #rail{ position:fixed; top:0; right:0; bottom:0; width:var(--railW);
+    z-index:5; background:#0A0E15; border-left:1px solid rgba(255,255,255,.14);
+    display:flex; flex-direction:column; overflow:hidden;
+    padding:calc(60*var(--wu)) calc(40*var(--wu)) calc(48*var(--wu));
+    gap:calc(26*var(--wu)); }
+  #rail .foot{ order:99; margin-top:auto; }
+  #band{ position:fixed; left:0; right:var(--railW); bottom:0;
+    height:var(--bandH); z-index:5; background:#0A0E15;
+    border-top:1px solid rgba(255,255,255,.14); }
+  #strip{ position:absolute; inset:0; width:100%; height:100%; }
+  #stripcap{ position:absolute; top:calc(12*var(--wu)); left:calc(20*var(--wu));
+    font:400 var(--t4)/1.2 var(--font-num); letter-spacing:.1em;
+    text-transform:uppercase; color:var(--ink-2);
+    text-shadow:0 0 6px rgba(4,7,10,.9); }
+  /* the sentence re-centres over the MAP, riding above the band */
+  body .lane{ right:var(--railW); bottom:calc(var(--bandH) + 50*var(--wu)); }
+</style>
+<link rel="stylesheet" href="wall.css">
+<script src="wall.js"></script>
+<script src="ecology_engine.js"></script>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="rail"><div class="foot">
+  <div class="instr mounted">
+    <div class="fine">an agent-based ecology<br>four random founder species per world</div>
+  </div>
+</div></div>
+<div id="band"><canvas id="strip"></canvas><div id="stripcap">community composition</div></div>
+<div id="info"></div>
+<script src="nav.js"></script>
+<script>
+const ROTATION = ['index.html'];   // standalone: nowhere else to go
+function rotateTo(step){
+  const here=(location.pathname.split('/').pop()||'kiosk.html');
+  let i=ROTATION.indexOf(here); if(i<0) i=0;
+  location.href=ROTATION[(i+step+ROTATION.length)%ROTATION.length];
+}
+
+const CONFIG = {
+  stepMs: 130,            // one simulation step every ~8th of a second; a
+                          // heavy step (tens of thousands of animals) simply
+                          // takes longer and the world slows honestly
+  holdMin: 8,             // minutes on the wall before handing off
+  maxAnimals: 25000,      // page copy of the engine safety valve
+  nextPage: '' /* standalone: nowhere to hand on to; start again */,
+};
+const PINNED = /(?:\?|&)pin\b/.test(location.search);
+
+
+
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const stripCv=document.getElementById('strip'), stx=stripCv.getContext('2d');
+const infoEl=document.getElementById('info');
+/* ONE fraction reserves the rail's width and the band's height; because the
+   two are equal and the viewport is 16:9, the remaining map rectangle keeps
+   the grid's own 16:9 and the cells stay square */
+const INSET=0.16;
+let W=0,H=0,MAPW=0,MAPH=0;
+function resize(){
+  W=cv.width=Math.min(1920,innerWidth); H=cv.height=Math.round(W*9/16);
+  cv.style.height=(innerWidth*9/16)+'px';
+  MAPW=Math.round(W*(1-INSET)); MAPH=Math.round(H*(1-INSET));
+  document.documentElement.style.setProperty('--railW', Math.round(innerWidth*INSET)+'px');
+  document.documentElement.style.setProperty('--bandH', Math.round(innerWidth*9/16*INSET)+'px');
+  const r=stripCv.getBoundingClientRect();
+  stripCv.width=Math.max(2,Math.round(r.width)); stripCv.height=Math.max(2,Math.round(r.height));
+}
+addEventListener('resize',resize); resize();
+
+/* the grass field renders through a 160x90 backing image scaled up with
+   smoothing off - 14,400 crisp cells for the price of one drawImage */
+let world=null, gcv=document.createElement('canvas'), gtx=gcv.getContext('2d'), gimg=null;
+
+/* ---- the community record: who exists, in what numbers, over time -------
+   Every species ever seen gets a stable colour and a stable stacking slot
+   the moment it first appears. The graph stacks RELATIVE abundance
+   (composition), so the strip stays full-height through booms and busts -
+   the population number lives in the panel. FULL HISTORY, always: when the
+   backing image fills, it is squeezed to half width and the sampling
+   interval doubles - a run left up for a week still shows its whole story,
+   left edge = founding, right edge = now. */
+const AREA_W=900, AREA_H=170;
+let SAMPLE_EVERY=2;
+let areaCv=document.createElement('canvas'), atx=areaCv.getContext('2d');
+areaCv.width=AREA_W; areaCv.height=AREA_H;
+let speciesReg=new Map(), areaCol=0, sinceSample=0;
+/* CMYK TRAIT MIXING (Joe's design, 2026-08-28): the colour IS the genome.
+   legs load the cyan channel, body magenta, mouth yellow, eyes black -
+   each trait/10 an ink load, K compressed to 0.55 so an eyes-10 species
+   stays visible on the dark ground. Similar traits therefore mix to
+   similar colours: the strip's colour gradients are trait gradients, and
+   a one-unit mutation is a one-shade shift. A carnivore wears its species
+   colour pulled 55% toward red (plus a red ring on the map) - diet must
+   read at a glance even on a colour-matched trait twin. */
+function cmyk(l,b,m,e,carn){
+  const C=l/10, M=b/10, Y=m/10, K=0.055*e;
+  let r=255*(1-C)*(1-K), g=255*(1-M)*(1-K), bl=255*(1-Y)*(1-K);
+  if(carn){ r=r*0.45+242*0.55; g=g*0.45+56*0.55; bl=bl*0.45+46*0.55; }
+  return 'rgb('+Math.round(r)+' '+Math.round(g)+' '+Math.round(bl)+')';
+}
+function regSpecies(key){
+  let r=speciesReg.get(key);
+  if(!r){
+    const carn=key.endsWith('C'), t=key.slice(0,-1).split(',').map(Number);
+    r={ order:speciesReg.size, color:cmyk(t[0],t[1],t[2],t[3],carn) };
+    speciesReg.set(key,r);
+  }
+  return r;
+}
+function sampleArea(s){
+  const total=s.animals; if(!total) return;
+  if(areaCol>=AREA_W){
+    /* history compression: squeeze what exists into the left half, sample
+       half as often from here on - the whole run always fits */
+    atx.drawImage(areaCv, 0,0,AREA_W,AREA_H, 0,0,AREA_W/2,AREA_H);
+    atx.clearRect(AREA_W/2,0,AREA_W/2,AREA_H);
+    areaCol=AREA_W/2; SAMPLE_EVERY*=2;
+  }
+  const rows=s.list.map(e=>({r:regSpecies(e.key), c:e.count}))
+                   .sort((a,b)=>a.r.order-b.r.order);
+  const x=areaCol++;
+  let y=AREA_H;
+  atx.clearRect(x,0,1,AREA_H);
+  for(const e of rows){
+    const hgt=AREA_H*e.c/total;
+    atx.fillStyle=e.r.color;
+    atx.fillRect(x, y-hgt, 1, hgt);
+    y-=hgt;
+  }
+}
+let paused=false, handingOff=false, lastStep=0, stepTook=0, fps=0, lastFrame=performance.now();
+let seed=0, startedAt=0;
+let peakPop=0, told={}, lastLane=0;
+
+function newRun(){
+  seed=Math.floor(Math.random()*1e9);
+  /* regrowEvery 5: the one deliberate departure from the spec's rates. At
+     the spec's 1 the grass income supports 30-50k animals - unwatchable on
+     the wall. 1/5 sprouting lands the equilibrium near 10k with the same
+     boom, bust and recovery (measured in the jsc sweeps). Joe's call to
+     revisit. */
+  world=Eco.newWorld(seed, {maxAnimals:CONFIG.maxAnimals, regrowEvery:5});
+  gcv.width=world.P.W; gcv.height=world.P.H;
+  gimg=gtx.createImageData(world.P.W, world.P.H);
+  peakPop=0; told={}; startedAt=performance.now(); lastLane=0;
+  speciesReg=new Map(); areaCol=0; sinceSample=0; SAMPLE_EVERY=2;
+  atx.clearRect(0,0,AREA_W,AREA_H);
+  Wall.clearEpisode(); Wall.clearTimers();
+  Wall.episode('Grass grows on every square. Four herbivore species wake in the '
+    +'four corners, and mating needs an exact trait match - so every mutation '
+    +'is a small step toward becoming something new.');
+  console.log('[ecology] seed', seed);
+}
+
+/* ---- the episode: narrate what the model actually does ------------------ */
+function narrate(s){
+  const now=performance.now();
+  if(now-lastLane<9000) return;                       // one thought at a time
+  function say(id,text,hold){ if(told[id]) return false;
+    told[id]=true; Wall.lane(text,{hold:hold||8000}); lastLane=now; return true; }
+
+  if(s.mutants>0 && say('mutant',
+    'The first mutant is born - one trait nudged one unit, or an appetite '
+    +'flipped. Its children will need partners exactly like itself.')) return;
+  if(s.carn>0 && say('carn',
+    'A mutation has flipped an appetite: the first CARNIVORE. It cannot eat '
+    +'grass any more - from here it hunts, or it starves.')) return;
+  if(s.carn>=25 && say('carnHold',
+    'The predators are no accident now: a standing carnivore population, '
+    +'red on the map, culling the herds that made them.')) return;
+  if(s.grass < 43200*0.1 && s.animals>3000 && say('crash',
+    'The commons is nearly bare. Grass regrows one unit at a time, and the '
+    +'herds have outrun it - the bust is arriving.')) return;
+  if(peakPop>4000 && s.animals < peakPop*0.55 && say('bust',
+    'Starvation has halved the population from its peak. What survives is '
+    +'whatever spent its fat most carefully.', 9000)) return;
+  if(s.species>=40 && say('radiate',
+    s.species+' distinct trait-species now share the grid, every one an '
+    +'accumulation of one-unit mutations - reproductive isolation by drift.')) return;
+  if(s.step>600 && Math.abs(s.animals-peakPop)<peakPop*0.1 && s.animals>2000 &&
+     say('steady','The boom and the bust have settled into a working '
+    +'ecosystem: grass, grazers, and their predators, none winning outright.')) return;
+}
+
+/* ---- drawing ------------------------------------------------------------ */
+function draw(s){
+  const P=world.P, cw=MAPW/P.W, chh=MAPH/P.H;
+  ctx.fillStyle='#04070a'; ctx.fillRect(0,0,W,H);
+  /* grass through the backing image */
+  const d=gimg.data;
+  for(let i=0;i<world.grass.length;i++){
+    const t=Math.sqrt(Math.min(1, world.grass[i]/P.grassMax));  // low grass stays visible
+    d[i*4  ]=7  + 28*t;
+    d[i*4+1]=13 + 105*t;
+    d[i*4+2]=8  + 34*t;
+    d[i*4+3]=255;
+  }
+  gtx.putImageData(gimg,0,0);
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(gcv,0,0,MAPW,MAPH);
+
+  /* animals wear their species colour; body size sets the mark. The colour
+     is cached on the animal - traits never change after birth. */
+  for(const a of world.animals){
+    if(!a._col) a._col=regSpecies(Eco.key(a)).color;
+    ctx.fillStyle=a._col;
+    const r = Math.max(2, (0.22+0.05*a.body)*cw);
+    ctx.fillRect(a.x*cw+(cw-r)/2, a.y*chh+(chh-r)/2, r, r);
+  }
+  /* predators over everything, ringed in red - rare enough to stroke */
+  ctx.strokeStyle='rgba(255,64,44,0.95)'; ctx.lineWidth=Math.max(1,cw*0.14);
+  for(const a of world.animals){ if(!a.carn) continue;
+    const r = Math.max(3, (0.34+0.05*a.body)*cw);
+    ctx.strokeRect(a.x*cw+(cw-r)/2, a.y*chh+(chh-r)/2, r, r);
+  }
+}
+
+function drawStrip(){
+  const sw=stripCv.width, sh=stripCv.height;
+  stx.fillStyle='#0A0E15'; stx.fillRect(0,0,sw,sh);
+  if(areaCol<2) return;
+  /* the filled portion IS the whole run - stretch it across the band */
+  stx.imageSmoothingEnabled=false;
+  stx.drawImage(areaCv, 0,0,areaCol,AREA_H, 0,0,sw,sh);
+}
+
+/* ---- the permanent instruments ------------------------------------------ */
+function traitSig(e){ return 'L'+e.legs+' B'+e.body+' M'+e.mouth+' E'+e.eyes; }
+function sigOfKey(k){ const t=k.slice(0,-1).split(',');
+  return 'L'+t[0]+' B'+t[1]+' M'+t[2]+' E'+t[3]; }
+function instrument(s){
+  Wall.instrument({
+    mount:'#rail', cols:1,
+    hero:{ v: s.animals.toLocaleString(), u:'animals' },
+    rows:[
+      { k:'species',   v: String(s.species) },
+      { k:'carnivores',v: String(s.carn) },
+      { k:'grass per cell', v: s.grassPerCell+' · '+s.vegetatedPct+'% veg.' },
+      { k:'step',      v: String(s.step) },
+    ],
+  });
+  /* The species table IS the legend now: each row wears the same swatch its
+     species wears on the map and in the strip. Trait signature on top,
+     count and role beneath it - one visual unit, no ambiguity about which
+     numbers belong to which traits. A carnivore row names its top prey. */
+  /* Top six species overall - plus the top two CARNIVORE species even when
+     they are too rare to crack the top six, because a predator's row is
+     where its diet shows and rare is the predators' natural state. */
+  const shown=s.list.slice(0,6);
+  for(const e of s.list.filter(e=>e.carn && !shown.includes(e)).slice(0,2)) shown.push(e);
+  Wall.instrument({
+    id:'species', mount:'#rail',
+    keys: shown.map(e=>({
+      c: regSpecies(e.key).color,
+      v: traitSig(e)+(e.carn?'  ·  C':''),
+      n: e.count.toLocaleString()+' · '+(e.carn?'carnivore':'herbivore')
+         +(e.carn && e.preyTop && e.preyTop.length
+            ? ' · eats '+sigOfKey(e.preyTop[0][0]) : ''),
+    })),
+    cap:'MOST COMMON SPECIES',
+  });
+}
+
+function handOff(){
+  if(handingOff) return; handingOff=true;
+  Wall.clearEpisode(); Wall.clearTimers();
+  document.body.style.transition='opacity 1400ms ease-in-out';
+  document.body.style.opacity='0';
+  setTimeout(()=>{ if(CONFIG.nextPage) location.href=CONFIG.nextPage;
+                   else location.reload(); },1500);
+}
+
+function frame(now){
+  requestAnimationFrame(frame);
+  const dtms=Math.max(0,now-lastFrame); lastFrame=now;
+  fps=fps?fps*0.9+(1000/Math.max(dtms,1))*0.1:60;
+  if(paused||handingOff) return;
+
+  let stepped=false;
+  if(now-lastStep>=CONFIG.stepMs){
+    const t0=performance.now();
+    Eco.step(world);
+    stepTook=performance.now()-t0;
+    lastStep=now; stepped=true;
+  }
+  const s=Eco.stats(world);
+  if(stepped && ++sinceSample>=SAMPLE_EVERY){ sinceSample=0; sampleArea(s); }
+  drawStrip();
+  peakPop=Math.max(peakPop,s.animals);
+  draw(s); instrument(s); narrate(s);
+
+  if(s.animals===0){
+    if(!told.extinct){ told.extinct=true;
+      Wall.lane('Every animal has starved or been eaten. The grass will have '
+        +'the world to itself - until the next seeding.',{hold:9000});
+      Wall.after(11000, newRun);
+    }
+  }
+  if(!PINNED && CONFIG.nextPage && now-startedAt>CONFIG.holdMin*60000) handOff();
+  if(document.body.classList.contains('showinfo')) updateInfo();
+}
+
+function updateInfo(){
+  const s=Eco.stats(world);
+  infoEl.textContent=
+`seed      ${seed}   step ${s.step}   ${stepTook.toFixed(0)} ms/step   fps ${fps.toFixed(0)}
+pop       ${s.animals} (H${s.herb}/C${s.carn})  species ${s.species}  peak ${peakPop}
+grass     ${s.grass}   fat~${s.fatMean}
+top       ${s.topSpecies.map(e=>e[0]+'x'+e[1]).join('  ')}
+params    reserve ${world.P.reproReserveSteps} steps · danger ${world.P.dangerWeight} · bravery floor ${world.P.braveryFloor} · mate ${world.P.mateWeight}
+keys: n new world · p pause · i info`;
+}
+
+addEventListener('keydown',(e)=>{
+  switch(e.key){
+    case 'i': case 'I': document.body.classList.toggle('showinfo'); updateInfo(); break;
+    case 'n': case 'N': newRun(); break;
+    case 'p': case 'P': case ' ': paused=!paused; break;
+    case 'ArrowRight': rotateTo(1); break;
+    case 'ArrowLeft':  rotateTo(-1); break;
+  }
+});
+
+newRun();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
