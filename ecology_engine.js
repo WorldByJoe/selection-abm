@@ -53,8 +53,12 @@
    (unless mutation flips it).
 
    MUTATION: 5% per birth. One of five equally likely outcomes: legs, body,
-   mouth or eyes shifts +-1 (clamped to 0..10), or the diet flips between
-   herbivore and carnivore.
+   mouth or eyes shifts +-1, or the diet flips between herbivore and
+   carnivore. TRAIT FLOORS (Joe, 2026-08-28): legs and eyes may reach 0 -
+   sessile and blind are real body plans - but body and mouth bottom out
+   at 1: an animal with no body or no mouth is not an animal. (An M0
+   creature could eat nothing at all under mouth-limited intake; a B0 one
+   was only ever a bookkeeping ghost.) Ceiling 10 for all four.
 
    PERCEPTION: an animal sees everything within eyes cells of itself -
    grass, animals, and their trait values - and chooses its action to
@@ -435,7 +439,8 @@ function mate(w, mom, dad, idx){
       if(pick===4){ baby.carn=!baby.carn; if(baby.carn) w.carnFlips++; }
       else{
         const t=['legs','body','mouth','eyes'][pick];
-        baby[t]=Math.max(0,Math.min(10,baby[t]+(w.rnd()<0.5?-1:1)));
+        const lo=(t==='body'||t==='mouth')?1:0;    // the trait floors
+        baby[t]=Math.max(lo,Math.min(10,baby[t]+(w.rnd()<0.5?-1:1)));
       }
       const ck=key(baby);
       if(ck!==key(mom)){
