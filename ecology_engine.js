@@ -68,8 +68,9 @@
    satisfy eating, reproduction, and predator avoidance.
 
    METABOLISM: each step fat falls by 0.1 x (distance moved) + 0.1 x
-   max(1, legs + body) - locomotor tissue is carried whether or not it is
-   used (Joe, 2026-08-28; formerly body alone).
+   max(1, legs + body + eyeCost x eyes) - locomotor AND sensory tissue are
+   carried whether or not they are used (Joe, 2026-08-28; formerly body
+   alone, then legs+body).
    Below 1 unit of fat the animal starves. Carnivores gain prey legs + body
    + fat; they cannot eat grass (a flipped diet must pay its way by hunting).
 
@@ -113,7 +114,9 @@ const DEFAULTS = {
      Every cell draws a growth quality from a spatially autocorrelated
      random field, so the map has good ground and poor ground in PATCHES
      rather than pixel-by-pixel noise. growLo..growHi is the per-step
-     compounding rate a cell supports (1% to 10%), and a bare cell's
+     compounding rate a cell supports - CENTRED ON 10% (Joe, 2026-08-28),
+     so the landscape varies without cutting total productivity the way a
+     1%..10% band did - and a bare cell's
      sprouting scales with the same quality, so poor ground both grows
      slowly and recovers slowly. patchRange is the correlation length in
      cells - the "range" of the variogram; patchSill is how much of the
@@ -129,11 +132,18 @@ const DEFAULTS = {
   cellCap: 2,
   patchRange: 12,
   patchSill: 1.0,
-  growLo: 0.01,
-  growHi: 0.10,
+  growLo: 0.02,           // mean of growLo and growHi is 0.10: the old
+  growHi: 0.18,           // uniform rate, now spread across the map
   mutationP: 0.05,
   moveCostPer: 0.1,       // fat per unit distance moved
-  bodyCostPer: 0.1,       // fat per unit body per step
+  bodyCostPer: 0.1,       // fat per unit of basal tissue per step
+  eyeCost: 1.0,           // how much one unit of eye counts toward basal
+                          // upkeep, relative to a unit of leg or body.
+                          // Joe, 2026-08-28: sensory tissue was the one
+                          // free component, and once territory contests
+                          // scored on L+B+M+E, selection inflated eyes to
+                          // win pixels at no cost (measured: E 1 -> 3.6).
+                          // Real retinas are expensive; so are these.
   starveBelow: 1,
   babyFat: 2,             // DECISION: newborn's starting fat
   initFat: 8,             // founders arrive fed but not rich
@@ -143,6 +153,18 @@ const DEFAULTS = {
   dangerWeight: 6.0,      // fear of a predator standing on your cell
   braveryFloor: 0.25,     // a starving animal keeps only this fraction of it
   mateWeight: 3.0,        // pull of a visible eligible mate
+
+  /* QUESTING (Joe, 2026-08-28). An animal carrying enough fat for
+     questLitters offspring has nothing left to gain by grazing and
+     everything to gain by finding a partner, so it stops foraging and
+     TRAVELS - holding one heading for questHold steps instead of milling
+     about inside its own perception radius. Waiting is what kept rare
+     species rare; this gives a rich animal a way to solve its own Allee
+     problem. */
+  questLitters: 5,        // litters' worth of spare fat that triggers it
+  questBoost:   3.0,      // multiplier on mate attraction while questing
+  questDrive:   2.5,      // pull of the chosen heading when no kin in sight
+  questHold:    25,       // steps a heading is kept before re-drawing
 
   comfortSteps: 25,       // fat giving 25 steps of body burn = "comfortable";
                           // hunger is judged against this horizon
@@ -340,7 +362,7 @@ function preyValue(b){ return b.legs+b.body+b.fat; }
    still. Floored at 1 so nothing is free to exist. Every "steps of
    metabolism" quantity (hunger horizon, breeding reserve) reads this same
    function, so they cannot drift apart from what is actually burned. */
-function basal(a){ return Math.max(1, a.legs+a.body); }
+function basal(a, P){ return Math.max(1, a.legs+a.body+(P?P.eyeCost:1)*a.eyes); }
 
 /* whole-organism size: what territory contests are settled on */
 function sizeOf(a){ return a.legs+a.body+a.mouth+a.eyes; }
@@ -414,7 +436,7 @@ function exposureAt(w,a,px,py){
 /* Hunger runs 0 (comfortable) to 1 (about to starve), judged against a
    horizon of comfortSteps of body metabolism. */
 function hunger(w,a){
-  const comfort = w.P.starveBelow + w.P.comfortSteps*w.P.bodyCostPer*basal(a);
+  const comfort = w.P.starveBelow + w.P.comfortSteps*w.P.bodyCostPer*basal(a,w.P);
   return Math.max(0, Math.min(1, (comfort-a.fat)/(comfort-w.P.starveBelow) ));
 }
 /* Reproduction economics. The spec's gate: fat must exceed the build cost
@@ -427,7 +449,7 @@ function hunger(w,a){
    could ever afford baby one - measured, four species, 2,000 frozen steps.) */
 function litterShare(w,a){ return (a.legs+a.body+a.mouth+w.P.babyFat)/2; }
 function reserveFloor(w,a){
-  return w.P.starveBelow + w.P.reproReserveSteps*w.P.bodyCostPer*basal(a);
+  return w.P.starveBelow + w.P.reproReserveSteps*w.P.bodyCostPer*basal(a,w.P);
 }
 function reproThreshold(w,a){
   return Math.max(a.legs+a.body+a.mouth, litterShare(w,a)+reserveFloor(w,a));
@@ -469,8 +491,25 @@ function act(w, a, idx){
      zero births in every seed (measured). The 0.6 weight keeps ambition
      gentler than starvation, so fear can override one but barely dents
      the other. */
-  const target=reproThreshold(w,a)*1.3;
-  const drive=Math.max(h, 0.6*Math.max(0, 1-a.fat/target));
+  /* Appetite now aims at the QUEST purse, not merely at one affordable
+     litter: an animal eats until it is rich enough to go looking for a
+     mate, then stops. (With the old 1.3x-threshold ceiling nobody could
+     ever save five litters' worth, so questing never fired once in 9,000
+     steps - measured.) The saving is not free: fat is in the concealment
+     term, so a questing animal is a conspicuous one. */
+  const questAt=reproThreshold(w,a)+P.questLitters*litterShare(w,a);
+  const drive=Math.max(h, 0.6*Math.max(0, 1-a.fat/questAt));
+
+  /* THE QUEST. Fat enough for questLitters offspring and still no partner
+     in sight: stop grazing, pick a bearing, and go. The heading persists
+     (questHold steps) so the animal actually crosses ground instead of
+     random-walking on the spot - which is the difference between searching
+     and milling. */
+  const questing = r>0 && a.fat >= questAt;
+  if(questing){
+    if(a.qt===undefined || a.qt<=0){ a.qdir=w.rnd()*Math.PI*2; a.qt=P.questHold; }
+    a.qt--;
+  } else a.qt=0;
 
   /* candidate destinations: stay, plus legs-radius points on 16 bearings
      at full and half stride. Integer cells, deduplicated. */
@@ -534,7 +573,15 @@ function act(w, a, idx){
     if(!a.carn){ for(const g of see.grassSpots) v=Math.max(v,drive*g.v/(1+dist(c.x,c.y,g.x,g.y))); }
     else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b)*convEff(a)*preyValue(p.b)/(1+dist(c.x,c.y,p.x,p.y))); }
     let mv=0;
-    if(r>0) for(const m of see.kin) mv=Math.max(mv, P.mateWeight*r/(1+dist(c.x,c.y,m.x,m.y)));
+    const mw=P.mateWeight*(questing?P.questBoost:1);
+    if(r>0) for(const m of see.kin) mv=Math.max(mv, mw*r/(1+dist(c.x,c.y,m.x,m.y)));
+    /* nothing of its own kind in view: travel the chosen bearing, and
+       prefer a long stride along it to a short one */
+    if(questing && !see.kin.length && a.legs>0 && c.d>0){
+      const dx=c.x-a.x, dy=c.y-a.y, len=Math.hypot(dx,dy);
+      const dot=(dx*Math.cos(a.qdir)+dy*Math.sin(a.qdir))/len;
+      if(dot>0) mv=Math.max(mv, P.questDrive*dot*(len/Math.max(1,a.legs)));
+    }
     const s = v + mv - fearAt(w,a,c.x,c.y,see.predators,h) - P.moveCostPer*c.d;
     if(s>best.score) best={kind:'move', score:s, to:c};
   }
@@ -599,15 +646,18 @@ function mate(w, mom, dad, idx){
         mom.fat-perParent>=reserveFloor(w,mom) &&
         dad.fat-perParent>=reserveFloor(w,dad) &&
         w.animals.length+madeQueue.length<P.maxAnimals){
-    /* the newborn needs a slot: the parents' own cell if it has room,
-       otherwise the nearest cell that does. A pair holding a full pixel in
-       crowded country simply cannot place another offspring, so territory
-       now limits reproduction directly. */
+    /* The newborn needs a slot: the parents' own cell if it has room,
+       otherwise a free cell within the MOTHER'S LEG REACH (Joe,
+       2026-08-28) - dispersal distance is inherited machinery, so a
+       sessile L0 pair can only breed into their own pixel while a
+       long-legged one can seed a neighbourhood. A pair holding a full
+       pixel with no reachable vacancy simply cannot place the offspring,
+       so territory limits reproduction directly. */
     let spot = null;
     const home=idx[mom.y*P.W+mom.x];
     let liveHome=0; if(home) for(const b of home) if(!b.dead) liveHome++;
     if(liveHome<P.cellCap) spot={x:mom.x,y:mom.y};
-    else spot=freeCellNear(w,idx,mom.x,mom.y,2);
+    else spot=freeCellNear(w,idx,mom.x,mom.y,mom.legs);
     if(!spot) break;
     mom.fat-=perParent; dad.fat-=perParent;
     const baby={ id:w.nextId++, x:spot.x, y:spot.y,
@@ -667,7 +717,7 @@ function step(w){
        animal still runs its machinery. Without this, mouth-fed grazing
        made B0 a zero-upkeep body plan and two of three test seeds hit the
        population cap on it (measured). */
-    a.fat -= P.moveCostPer*a.moved + P.bodyCostPer*basal(a);
+    a.fat -= P.moveCostPer*a.moved + P.bodyCostPer*basal(a,P);
     a.age++;
     if(a.fat<P.starveBelow){ a.dead='starved'; w.starved++;
       if(a.carn){ w.carnStarved++; w.carnAgeSum+=a.age; } }
