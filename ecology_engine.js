@@ -15,14 +15,28 @@
 
    ANIMALS carry legs, body, mouth, eyes as integers 0..10 and fat as a
    continuous store. One action per step: MOVE up to legs distance (radius),
-   EAT grass (gains min(body, grass here), always succeeds), EAT an animal
-   in the same cell (needs mouth >= prey body; gains prey legs + body +
-   fat), or MATE. PREDATION SUCCESS DEPENDS ON HIDING IN THE GRASS (Joe,
-   2026-08-28, replacing the original flat 50%): with S = the prey's
-   legs+body+mouth+fat, a prey standing in grass >= S is caught only 10% of
-   the time; below that, success rises linearly to 100% on bare ground. So
-   an overgrazed commons is a killing field, fat itself is a visibility
-   cost, and tall grass is worth fighting over.
+   EAT grass (gains min(MOUTH, grass here), always succeeds), EAT an animal
+   in the same cell, or MATE. The mouth is the feeding organ for BOTH diets
+   (Joe, 2026-08-28: the original "eat one body amount" left mouth costless
+   for herbivores - it prices offspring and inflates concealment size but
+   bought nothing - and selection promptly bred M0 herbivores that grazed
+   perfectly well. Mouth-limited intake gives the trait an honest benefit:
+   a mouthless animal starves, and a big body needs a big mouth to fuel).
+
+   PREDATION (Joe's rules, 2026-08-28/29):
+   - GAPE, strict: the predator's mouth must EXCEED the prey's body -
+     equal no longer swallows equal, which closes self-predation for every
+     species whose mouth does not out-size its own body.
+   - CONCEALMENT (replacing the original flat 50%): with S = the prey's
+     legs+body+mouth+fat, a prey standing in grass >= S is caught only 10%
+     of the time; below that, success rises linearly to 100% on bare
+     ground. An overgrazed commons is a killing field, fat is a visibility
+     cost, and tall grass is worth fighting over.
+   - CONVERSION EFFICIENCY: a kill yields the prey's legs+body+fat scaled
+     by the predator's trophic efficiency, 0.9 - 0.04 x (eyes + legs):
+     90% for a sessile, sightless ambusher, 10% for a maximal courser.
+     Sensory and locomotor machinery is paid for out of every meal, which
+     carves an ambush-vs-pursuit axis into the predator guild.
 
    MATING needs a partner on the same or adjacent cell with EQUAL legs,
    body, mouth, eyes AND THE SAME DIET (Joe, 2026-08-28: a carnivore and an
@@ -199,12 +213,12 @@ function perceive(w, a, idx){
     const d=o.d;
     if(!a.carn){
       const g=w.grass[y*P.W+x];
-      if(g>=1) out.grassSpots.push({x,y,d, v:Math.min(a.body,g)});
+      if(g>=1) out.grassSpots.push({x,y,d, v:Math.min(a.mouth,g)});
     }
     const cell=idx.get(y*P.W+x); if(!cell) continue;
     for(const b of cell){ if(b===a||b.dead) continue;
-      if(a.carn && a.mouth>=b.body) out.prey.push({b,x,y,d});
-      if(b.mouth>=a.body && b.carn) out.predators.push({b,x,y,d});
+      if(a.carn && a.mouth>b.body) out.prey.push({b,x,y,d});
+      if(b.carn && b.mouth>a.body) out.predators.push({b,x,y,d});
       if(b.legs===a.legs && b.body===a.body && b.mouth===a.mouth && b.eyes===a.eyes
          && (!P.dietAssort || b.carn===a.carn)){
         /* kin are worth walking toward even when neither side is ready yet -
@@ -225,6 +239,11 @@ function perceive(w, a, idx){
   return out;
 }
 function preyValue(b){ return b.legs+b.body+b.fat; }
+/* Trophic conversion: what fraction of a kill becomes predator fat.
+   Linear in the predator's sensory-locomotor investment (Joe's rule):
+   eyes+legs = 0 -> 0.9, eyes+legs = 20 -> 0.1. */
+function convEff(a){ return 0.9 - 0.04*(a.eyes+a.legs); }
+
 /* Joe's concealment rule: the prey's size S = legs+body+mouth+fat against
    the grass on the cell it stands in. Hidden (grass >= S): 10%. Exposed:
    rises linearly to 100% on bare ground. */
@@ -320,7 +339,7 @@ function act(w, a, idx){
   let best={ kind:'stay', score:-1e9 };
   if(!a.carn){
     const g=w.grass[a.y*P.W+a.x];
-    const gain=Math.min(a.body,g);
+    const gain=Math.min(a.mouth,g);
     if(gain>0 && drive>0){
       /* hunger alone prices a meal: a comfortable animal does not eat, so
          fat is bounded near the comfort horizon and grazing pressure tracks
@@ -332,7 +351,7 @@ function act(w, a, idx){
     const here=see.prey.filter(p=>p.d===0 && !p.b.dead);
     if(here.length){
       const tgt=here[0];
-      const s=drive*catchProb(w,tgt.b)*preyValue(tgt.b) - fearAt(w,a,a.x,a.y,see.predators,h);
+      const s=drive*catchProb(w,tgt.b)*convEff(a)*preyValue(tgt.b) - fearAt(w,a,a.x,a.y,see.predators,h);
       if(s>best.score) best={kind:'hunt', score:s, target:tgt.b};
     }
   }
@@ -351,7 +370,7 @@ function act(w, a, idx){
   for(const c of cands){
     let v=0;
     if(!a.carn){ for(const g of see.grassSpots) v=Math.max(v,drive*g.v/(1+dist(c.x,c.y,g.x,g.y))); }
-    else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b)*preyValue(p.b)/(1+dist(c.x,c.y,p.x,p.y))); }
+    else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b)*convEff(a)*preyValue(p.b)/(1+dist(c.x,c.y,p.x,p.y))); }
     let mv=0;
     if(r>0) for(const m of see.kin) mv=Math.max(mv, P.mateWeight*r/(1+dist(c.x,c.y,m.x,m.y)));
     const s = v + mv - fearAt(w,a,c.x,c.y,see.predators,h) - P.moveCostPer*c.d;
@@ -377,7 +396,7 @@ function act(w, a, idx){
   } else if(best.kind==='hunt'){
     if(w.rnd()<catchProb(w,best.target)){
       best.target.dead='eaten'; w.eaten++;
-      a.fat+=preyValue(best.target);
+      a.fat+=convEff(a)*preyValue(best.target);
       /* the diet ledger: what does each carnivore species actually eat */
       const pk=key(a), qk=key(best.target);
       let m=w.preyLog.get(pk); if(!m){ m=new Map(); w.preyLog.set(pk,m); }
@@ -453,7 +472,11 @@ function step(w){
   /* metabolism + death, then the newborns join */
   for(const a of order){
     if(a.dead) continue;
-    a.fat -= P.moveCostPer*a.moved + P.bodyCostPer*a.body;
+    /* basal floor: metabolism charges at least one body unit - a body-0
+       animal still runs its machinery. Without this, mouth-fed grazing
+       made B0 a zero-upkeep body plan and two of three test seeds hit the
+       population cap on it (measured). */
+    a.fat -= P.moveCostPer*a.moved + P.bodyCostPer*Math.max(1,a.body);
     a.age++;
     if(a.fat<P.starveBelow){ a.dead='starved'; w.starved++;
       if(a.carn){ w.carnStarved++; w.carnAgeSum+=a.age; } }

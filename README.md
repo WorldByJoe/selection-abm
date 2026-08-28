@@ -20,13 +20,19 @@ finds its footing - predators.
   own size (legs+body+mouth+fat) is caught only 10% of the time; on bare
   ground, 100%. An overgrazed commons is a killing field, fat is a
   visibility cost, and tall grass is worth fighting over.
+- **Trophic efficiency**: a kill converts prey biomass to predator fat at
+  0.9 - 0.04 x (eyes + legs): sessile, sightless ambushers keep 90% of a
+  meal; maximal coursers keep 10%. The hunting machinery is paid for out
+  of every kill.
+- **The mouth feeds, both diets**: grazing gains min(mouth, grass) - a
+  mouthless animal starves, and a large body needs a large mouth.
 - **Trait-identity mating**: partners must match in all four traits and in
   diet, and both must hold enough fat to build the offspring plus a reserve
   for themselves. Mate scarcity gives rare species - new predators above
   all - a real Allee effect: their growth stays suppressed until numbers
   cross the threshold where partners are findable.
-- **The mouth-body gate**: a predator can only swallow prey whose body its
-  mouth matches. A large enough grazer is too big to eat - a size refuge
+- **The mouth-body gate**: a predator's mouth must strictly exceed its
+  prey's body. A large enough grazer is too big to eat - a size refuge
   that evolution may or may not find.
 
 ## Reading the screen
