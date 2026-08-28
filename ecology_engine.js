@@ -184,11 +184,14 @@ function newWorld(seed, opts){
    Everything an animal decides is computed from what sits within eyes cells
    of it. The cell index is rebuilt once per step and shared. */
 function buildIndex(w){
-  const idx = new Map();
+  /* A FLAT ARRAY, not a Map: perception does ~1e6 cell lookups per step at
+     equilibrium and array indexing is markedly cheaper than Map.get.
+     Per-cell insertion order is unchanged, so runs stay bit-identical
+     (verified by fingerprint before/after). */
+  const idx = new Array(w.P.W*w.P.H);
   for(const a of w.animals){ if(a.dead) continue;
     const k=a.y*w.P.W+a.x;
-    let arr=idx.get(k); if(!arr){ arr=[]; idx.set(k,arr); }
-    arr.push(a);
+    const arr=idx[k]; if(arr) arr.push(a); else idx[k]=[a];
   }
   return idx;
 }
@@ -217,9 +220,23 @@ function perceive(w, a, idx){
     const d=o.d;
     if(!a.carn){
       const g=w.grass[y*P.W+x];
-      if(g>=1) out.grassSpots.push({x,y,d, v:Math.min(a.mouth,g)});
+      if(g>=1){
+        /* TOP-6 BY INSERTION, not sort-then-truncate. Every herbivore sees
+           up to ~80 grass cells and only the best 6 survive; sorting all of
+           them per animal per step was the single hottest operation in the
+           model. Insert after all entries with score >= this one, which is
+           exactly what a STABLE descending sort produced - verified
+           bit-identical. Cells that cannot reach the top 6 never allocate. */
+        const v=Math.min(a.mouth,g), sc=v/(1+d), arr=out.grassSpots;
+        if(arr.length<6 || sc>arr[arr.length-1]._s){
+          let i=arr.length-1;
+          while(i>=0 && sc>arr[i]._s) i--;
+          arr.splice(i+1, 0, {x,y,d,v,_s:sc});
+          if(arr.length>6) arr.length=6;
+        }
+      }
     }
-    const cell=idx.get(y*P.W+x); if(!cell) continue;
+    const cell=idx[y*P.W+x]; if(!cell) continue;
     for(const b of cell){ if(b===a||b.dead) continue;
       if(a.carn && a.mouth>b.body) out.prey.push({b,x,y,d});
       if(b.carn && b.mouth>a.body) out.predators.push({b,x,y,d});
@@ -234,10 +251,7 @@ function perceive(w, a, idx){
       }
     }
   }
-  /* keep only the best handful of food spots - scoring every candidate
-     against every visible cell is O(a lot) for no behavioural gain */
-  out.grassSpots.sort((p,q)=>(q.v/(1+q.d))-(p.v/(1+p.d)));
-  out.grassSpots.length=Math.min(out.grassSpots.length,6);
+  /* grassSpots is already the best 6, kept in order as it was built */
   out.prey.sort((p,q)=>(preyValue(q.b)/(1+q.d))-(preyValue(p.b)/(1+p.d)));
   out.prey.length=Math.min(out.prey.length,6);
   return out;
@@ -327,14 +341,19 @@ function act(w, a, idx){
      at full and half stride. Integer cells, deduplicated. */
   const cands=[{x:a.x,y:a.y,d:0}];
   if(a.legs>0){
+    /* seen-set instead of a linear scan per candidate: same candidates in
+       the same order, but O(n) instead of O(n^2) on a 33-entry list that
+       every animal rebuilds every step */
+    const seen=new Set([a.y*P.W+a.x]);
     for(let k=0;k<16;k++){
       const th=k*Math.PI/8;
       for(const frac of [1,0.5]){
         const dr=a.legs*frac; if(dr<1) continue;
         const nx=Math.round(a.x+Math.cos(th)*dr), ny=Math.round(a.y+Math.sin(th)*dr);
         if(nx<0||ny<0||nx>=P.W||ny>=P.H) continue;
+        const ck=ny*P.W+nx; if(seen.has(ck)) continue;
         const dd=dist(a.x,a.y,nx,ny);
-        if(dd<=a.legs+1e-9 && !cands.some(c=>c.x===nx&&c.y===ny)) cands.push({x:nx,y:ny,d:dd});
+        if(dd<=a.legs+1e-9){ seen.add(ck); cands.push({x:nx,y:ny,d:dd}); }
       }
     }
   }
