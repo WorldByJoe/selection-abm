@@ -59,6 +59,10 @@
     font:400 var(--t4)/1.2 var(--font-num); letter-spacing:.1em;
     text-transform:uppercase; color:var(--ink-2);
     text-shadow:0 0 6px rgba(4,7,10,.9); }
+  /* The genome key's four labels are wider than their swatches, so this
+     page opens the strip's gap - scoped here, since plume's strips want
+     the tight default. */
+  #rail .strip .sws{ gap:calc(20*var(--wu)); }
   /* the sentence re-centres over the MAP, riding above the band */
   body .lane{ right:var(--railW); bottom:calc(var(--bandH) + 50*var(--wu)); }
   /* the armed-start overlay (standalone builds only): the founders stand
@@ -307,6 +311,15 @@ function instrument(s){
       { k:'grass per cell', v: s.grassPerCell+' · '+s.vegetatedPct+'% veg.' },
       { k:'step',      v: String(s.step) },
     ],
+    /* The key to the genome colours: each trait loads one printing ink, so
+       a species' colour IS its trait vector. Eyes get the black channel,
+       shown as the light-to-dark ramp it actually applies. */
+    strips:[{ k:'genome = CMYK ink', items:[
+      { c:'#00b7eb', label:'legs' },
+      { c:'#ec008c', label:'body' },
+      { c:'#fff200', label:'mouth' },
+      { c:'linear-gradient(90deg,#e9edf3,#0d1117)', label:'eyes' },
+    ]}],
   });
   /* The species table IS the legend now: each row wears the same swatch its
      species wears on the map and in the strip. Trait signature on top,
