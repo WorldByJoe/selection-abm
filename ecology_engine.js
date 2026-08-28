@@ -160,8 +160,16 @@ const DEFAULTS = {
      TRAVELS - holding one heading for questHold steps instead of milling
      about inside its own perception radius. Waiting is what kept rare
      species rare; this gives a rich animal a way to solve its own Allee
-     problem. */
-  questLitters: 5,        // litters' worth of spare fat that triggers it
+     problem.
+
+     OFF BY DEFAULT (Joe, 2026-08-28, after watching a run): set
+     questLitters to 0 and both the questing behaviour AND its raised
+     appetite ceiling revert exactly to the pre-quest model - animals stop
+     eating at 1.3x their breeding threshold again, instead of hoarding
+     five litters' worth of conspicuous fat. Set it to 5 to switch the
+     whole mechanism back on. */
+  questLitters: 0,        // litters' worth of spare fat that triggers it;
+                          // 0 disables questing entirely
   questBoost:   3.0,      // multiplier on mate attraction while questing
   questDrive:   2.5,      // pull of the chosen heading when no kin in sight
   questHold:    25,       // steps a heading is kept before re-drawing
@@ -497,7 +505,13 @@ function act(w, a, idx){
      ever save five litters' worth, so questing never fired once in 9,000
      steps - measured.) The saving is not free: fat is in the concealment
      term, so a questing animal is a conspicuous one. */
-  const questAt=reproThreshold(w,a)+P.questLitters*litterShare(w,a);
+  /* Appetite aims at the quest purse when questing is enabled, and
+     otherwise at the old satiety ceiling of 1.3x the breeding threshold.
+     One switch (questLitters) therefore governs both the behaviour and the
+     hoarding it requires - they cannot get out of step. */
+  const questAt = P.questLitters>0
+        ? reproThreshold(w,a)+P.questLitters*litterShare(w,a)
+        : reproThreshold(w,a)*1.3;
   const drive=Math.max(h, 0.6*Math.max(0, 1-a.fat/questAt));
 
   /* THE QUEST. Fat enough for questLitters offspring and still no partner
@@ -505,7 +519,7 @@ function act(w, a, idx){
      (questHold steps) so the animal actually crosses ground instead of
      random-walking on the spot - which is the difference between searching
      and milling. */
-  const questing = r>0 && a.fat >= questAt;
+  const questing = P.questLitters>0 && r>0 && a.fat >= questAt;
   if(questing){
     if(a.qt===undefined || a.qt<=0){ a.qdir=w.rnd()*Math.PI*2; a.qt=P.questHold; }
     a.qt--;
