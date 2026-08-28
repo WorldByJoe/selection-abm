@@ -292,9 +292,11 @@ function drawStrip(){
 }
 
 /* ---- the permanent instruments ------------------------------------------ */
-function traitSig(e){ return 'L'+e.legs+' B'+e.body+' M'+e.mouth+' E'+e.eyes; }
+/* the species NAME, everywhere one appears - table, prey lines, and the
+   lab's CSV columns share this exact form (Joe: L3_B1_M4_E1 style) */
+function traitSig(e){ return 'L'+e.legs+'_B'+e.body+'_M'+e.mouth+'_E'+e.eyes; }
 function sigOfKey(k){ const t=k.slice(0,-1).split(',');
-  return 'L'+t[0]+' B'+t[1]+' M'+t[2]+' E'+t[3]; }
+  return 'L'+t[0]+'_B'+t[1]+'_M'+t[2]+'_E'+t[3]; }
 function instrument(s){
   Wall.instrument({
     mount:'#rail', cols:1,
