@@ -93,6 +93,9 @@ const CONFIG = {
   nextPage: '' /* standalone: nowhere to hand on to; start again */,
 };
 const PINNED = /(?:\?|&)pin\b/.test(location.search);
+/* ?steps=N freezes the run at step N for inspection - the standalone and
+   experiment use; 0 (absent) runs forever */
+const STOP_AT = parseInt((location.search.match(/[?&]steps=(\d+)/)||[])[1]||'0',10);
 
 
 
@@ -325,7 +328,12 @@ function frame(now){
   if(paused||handingOff) return;
 
   let stepped=false;
-  if(now-lastStep>=CONFIG.stepMs){
+  if(STOP_AT && world.step>=STOP_AT){
+    if(!told.runDone){ told.runDone=true;
+      Wall.lane('Run complete: frozen at step '+STOP_AT+' for inspection. '
+        +'Press n for a fresh world.',{hold:12000}); }
+  }
+  else if(now-lastStep>=CONFIG.stepMs){
     const t0=performance.now();
     Eco.step(world);
     stepTook=performance.now()-t0;
