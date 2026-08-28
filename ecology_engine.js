@@ -128,8 +128,26 @@ const DEFAULTS = {
      Eviction needs STRICTLY greater size, so trait-identical animals
      cannot displace each other, which lets a mated pair hold a good pixel
      against each other while still yielding to anything larger. This is
-     the first benefit size has ever had in the model. */
+     the first benefit size has ever had in the model.
+
+     WHAT COUNTS AS SIZE: legs + body + eyes, and mouth only at weight
+     sizeMouth. Joe, 2026-08-28: mouth left the contest because it was the
+     cheapest way to be big - it costs nothing in basal metabolism, so
+     selection bought territory with mouth and left body pinned at 1. With
+     mouth out, every unit of contest size is metabolically paid for, and
+     body is the one that also earns a gape refuge. (A mouth does carry
+     teeth, so sizeMouth 1 restores it to the brawl if that reading is
+     preferred - it is a weight, not a boolean.) */
   cellCap: 2,
+  sizeMouth: 0,
+  capPerDiet: true,       /* Joe, 2026-08-28: the cap is counted SEPARATELY
+     for each diet, so a pixel holds up to cellCap herbivores AND cellCap
+     carnivores. Sharing one pot made predators compete with their own prey
+     for standing room: a hunter arriving at an occupied cell had to evict
+     one of the two animals it came to eat, and grazers were pushed off good
+     grass by competitors that never touch grass. Per-diet counting keeps
+     territory a contest among ecological equals and leaves predation a
+     purely trophic interaction. false restores the shared pot. */
   patchRange: 12,
   patchSill: 1.0,
   growLo: 0.02,           // mean of growLo and growHi is 0.10: the old
@@ -372,8 +390,9 @@ function preyValue(b){ return b.legs+b.body+b.fat; }
    function, so they cannot drift apart from what is actually burned. */
 function basal(a, P){ return Math.max(1, a.legs+a.body+(P?P.eyeCost:1)*a.eyes); }
 
-/* whole-organism size: what territory contests are settled on */
-function sizeOf(a){ return a.legs+a.body+a.mouth+a.eyes; }
+/* what territory contests are settled on: metabolically-paid tissue, plus
+   mouth at whatever weight the world gives it (default 0) */
+function sizeOf(a,P){ return a.legs+a.body+a.eyes+(P?P.sizeMouth:0)*a.mouth; }
 
 /* Can `a` occupy (x,y)? Returns null if not, otherwise the animal that must
    be evicted first (or undefined when there is simply room). The index is
@@ -381,18 +400,20 @@ function sizeOf(a){ return a.legs+a.body+a.mouth+a.eyes; }
 function entryFor(w, idx, a, x, y){
   const cell=idx[y*w.P.W+x];
   if(!cell) return { evict:null };
-  /* count only the LIVING: an animal eaten earlier this step has left a
-     vacancy, and holding its slot until the sweep would let a corpse deny
-     territory. */
+  /* Count only the LIVING (an animal eaten earlier this step has left a
+     vacancy) and, when capPerDiet is on, only one's own trophic guild -
+     grazers contest ground with grazers, hunters with hunters. */
+  const perDiet=w.P.capPerDiet;
   let live=0, weakest=null;
   for(const b of cell){
     if(b===a) return { evict:null };                 // already standing here
     if(b.dead) continue;
+    if(perDiet && b.carn!==a.carn) continue;
     live++;
-    if(!weakest || sizeOf(b)<sizeOf(weakest)) weakest=b;
+    if(!weakest || sizeOf(b,w.P)<sizeOf(weakest,w.P)) weakest=b;
   }
   if(live<w.P.cellCap) return { evict:null };
-  return (weakest && sizeOf(a)>sizeOf(weakest)) ? { evict:weakest } : null;
+  return (weakest && sizeOf(a,w.P)>sizeOf(weakest,w.P)) ? { evict:weakest } : null;
 }
 
 /* Move an animal between cells, keeping the live index correct. */
@@ -406,7 +427,8 @@ function relocate(w, idx, a, nx, ny){
 
 /* Somewhere with room within `rad` of (x,y), nearest rings first - used for
    evicted animals and for newborns when the parents' cell is full. */
-function freeCellNear(w, idx, x, y, rad){
+function freeCellNear(w, idx, x, y, rad, carn){
+  const perDiet=w.P.capPerDiet;
   for(let r=1;r<=rad;r++){
     for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++){
       if(Math.max(Math.abs(dx),Math.abs(dy))!==r) continue;
@@ -414,7 +436,9 @@ function freeCellNear(w, idx, x, y, rad){
       if(nx<0||ny<0||nx>=w.P.W||ny>=w.P.H) continue;
       const c=idx[ny*w.P.W+nx];
       if(!c) return {x:nx,y:ny};
-      let live=0; for(const b of c) if(!b.dead) live++;
+      let live=0;
+      for(const b of c){ if(b.dead) continue;
+        if(perDiet && b.carn!==carn) continue; live++; }
       if(live<w.P.cellCap) return {x:nx,y:ny};
     }
   }
@@ -635,7 +659,7 @@ function act(w, a, idx){
            cell with room. If the map around it is full the contest simply
            fails and the challenger stays put - no animal is deleted by a
            territorial loss. */
-        const spot=freeCellNear(w,idx,best.to.x,best.to.y,3);
+        const spot=freeCellNear(w,idx,best.to.x,best.to.y,3,e.evict.carn);
         if(spot){ relocate(w,idx,e.evict,spot.x,spot.y); w.evictions++; }
         else { a.acted=true; return; }
       }
@@ -660,6 +684,9 @@ function mate(w, mom, dad, idx){
         mom.fat-perParent>=reserveFloor(w,mom) &&
         dad.fat-perParent>=reserveFloor(w,dad) &&
         w.animals.length+madeQueue.length<P.maxAnimals){
+    /* Parents share a diet, so the offspring's guild is known before it
+       exists - which is what the per-diet slot search needs. */
+    const baby0carn = mom.carn;
     /* The newborn needs a slot: the parents' own cell if it has room,
        otherwise a free cell within the MOTHER'S LEG REACH (Joe,
        2026-08-28) - dispersal distance is inherited machinery, so a
@@ -669,9 +696,11 @@ function mate(w, mom, dad, idx){
        so territory limits reproduction directly. */
     let spot = null;
     const home=idx[mom.y*P.W+mom.x];
-    let liveHome=0; if(home) for(const b of home) if(!b.dead) liveHome++;
+    let liveHome=0;
+    if(home) for(const b of home){ if(b.dead) continue;
+      if(P.capPerDiet && b.carn!==baby0carn) continue; liveHome++; }
     if(liveHome<P.cellCap) spot={x:mom.x,y:mom.y};
-    else spot=freeCellNear(w,idx,mom.x,mom.y,mom.legs);
+    else spot=freeCellNear(w,idx,mom.x,mom.y,mom.legs,baby0carn);
     if(!spot) break;
     mom.fat-=perParent; dad.fat-=perParent;
     const baby={ id:w.nextId++, x:spot.x, y:spot.y,
