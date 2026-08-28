@@ -70,6 +70,11 @@
   #startGate{ position:fixed; left:0; top:0; right:var(--railW);
     bottom:var(--bandH); display:flex; align-items:center;
     justify-content:center; z-index:6; }
+  /* An ID rule beats the UA stylesheet's [hidden]{display:none}, so the
+     overlay MUST opt out explicitly - without this the dead button hangs
+     over a running wall, and stays put after start in the standalone.
+     (Seen on the wall, not in any probe: photograph the running thing.) */
+  #startGate[hidden]{ display:none; }
   #startGate button{ font:400 var(--t2)/1 var(--font-ui); letter-spacing:.08em;
     color:#eef4fc; background:rgba(10,14,21,.88); cursor:pointer;
     border:1px solid rgba(255,255,255,.35); border-radius:calc(14*var(--wu));
