@@ -61,6 +61,16 @@
     text-shadow:0 0 6px rgba(4,7,10,.9); }
   /* the sentence re-centres over the MAP, riding above the band */
   body .lane{ right:var(--railW); bottom:calc(var(--bandH) + 50*var(--wu)); }
+  /* the armed-start overlay (standalone builds only): the founders stand
+     visible in their corners until the button is pressed */
+  #startGate{ position:fixed; left:0; top:0; right:var(--railW);
+    bottom:var(--bandH); display:flex; align-items:center;
+    justify-content:center; z-index:6; }
+  #startGate button{ font:400 var(--t2)/1 var(--font-ui); letter-spacing:.08em;
+    color:#eef4fc; background:rgba(10,14,21,.88); cursor:pointer;
+    border:1px solid rgba(255,255,255,.35); border-radius:calc(14*var(--wu));
+    padding:calc(26*var(--wu)) calc(60*var(--wu)); }
+  #startGate button:hover{ background:rgba(27,36,50,.92); }
 </style>
 <link rel="stylesheet" href="wall.css">
 <script src="wall.js"></script>
@@ -74,6 +84,7 @@
   </div>
 </div></div>
 <div id="band"><canvas id="strip"></canvas><div id="stripcap">community composition</div></div>
+<div id="startGate" hidden><button id="startBtn">start the run</button></div>
 <div id="info"></div>
 <script src="nav.js"></script>
 <script>
@@ -90,6 +101,11 @@ const CONFIG = {
                           // takes longer and the world slows honestly
   holdMin: 8,             // minutes on the wall before handing off
   maxAnimals: 25000,      // page copy of the engine safety valve
+  startGate: true,       // false on the WALL (a kiosk has no mouse): the
+                          // run begins on load. The standalone build flips
+                          // this true, so a visitor - Joe arranging data
+                          // capture above all - can set things up and THEN
+                          // press start; the founders wait visibly.
   nextPage: '' /* standalone: nowhere to hand on to; start again */,
 };
 const PINNED = /(?:\?|&)pin\b/.test(location.search);
@@ -179,7 +195,7 @@ function sampleArea(s){
     y-=hgt;
   }
 }
-let paused=false, handingOff=false, lastStep=0, stepTook=0, fps=0, lastFrame=performance.now();
+let started=false, paused=false, handingOff=false, lastStep=0, stepTook=0, fps=0, lastFrame=performance.now();
 let seed=0, startedAt=0;
 let peakPop=0, told={}, lastLane=0;
 
@@ -328,7 +344,8 @@ function frame(now){
   if(paused||handingOff) return;
 
   let stepped=false;
-  if(STOP_AT && world.step>=STOP_AT){
+  if(!started){ /* armed: draw the waiting founders, step nothing */ }
+  else if(STOP_AT && world.step>=STOP_AT){
     if(!told.runDone){ told.runDone=true;
       Wall.lane('Run complete: frozen at step '+STOP_AT+' for inspection. '
         +'Press n for a fresh world.',{hold:12000}); }
@@ -378,6 +395,13 @@ addEventListener('keydown',(e)=>{
 });
 
 newRun();
+if(CONFIG.startGate){
+  document.getElementById('startGate').hidden=false;
+  document.getElementById('startBtn').onclick=()=>{
+    started=true; startedAt=performance.now();
+    document.getElementById('startGate').hidden=true;
+  };
+} else started=true;
 requestAnimationFrame(frame);
 </script>
 </body>
