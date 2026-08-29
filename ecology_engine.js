@@ -397,6 +397,29 @@ for(let R=0;R<=10;R++){
   OFFS.push(list);
 }
 
+/* MOVEMENT offsets: EVERY cell within legs distance, nearest first.
+   Joe, 2026-08-28 - "L=x means all the squares inside radius x". The old
+   generator sampled 16 bearings at full and half stride, which is a sparse
+   RING, not a disc: measured coverage was 100% at legs 1-2 but 59% at legs
+   3, 43% at legs 4 and 21% at legs 6, and for legs >= 3 it could not offer
+   the adjacent cell directly ahead at all - a fast animal could overshoot a
+   neighbour but never step onto it. That silently taxed legs (blocking fine
+   positioning, reaching an adjacent mate, and targeting a neighbour for
+   eviction) and is a plausible part of why legs kept collapsing to 1-2.
+   Nearest-first ordering means cheap moves are considered before expensive
+   ones, so ties resolve toward staying close. */
+const MOVE_OFFS=[];
+for(let R=0;R<=10;R++){
+  const list=[];
+  for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){
+    if(dx===0 && dy===0) continue;
+    const d=Math.sqrt(dx*dx+dy*dy);
+    if(d<=R+1e-9) list.push({dx,dy,d});
+  }
+  list.sort((p,q)=>p.d-q.d);
+  MOVE_OFFS.push(list);
+}
+
 /* What this animal can see: the best grass cells, every visible animal
    split into prey / eligible mates / predators-of-me. */
 function perceive(w, a, idx){
@@ -654,26 +677,14 @@ function act(w, a, idx){
 
   /* candidate destinations: stay, plus legs-radius points on 16 bearings
      at full and half stride. Integer cells, deduplicated. */
+  /* every cell within reach, plus standing still; offsets are unique so no
+     dedup is needed. A full cell it cannot out-size is not offered at all. */
   const cands=[{x:a.x,y:a.y,d:0}];
   if(a.legs>0){
-    /* seen-set instead of a linear scan per candidate: same candidates in
-       the same order, but O(n) instead of O(n^2) on a 33-entry list that
-       every animal rebuilds every step */
-    const seen=new Set([a.y*P.W+a.x]);
-    for(let k=0;k<16;k++){
-      const th=k*Math.PI/8;
-      for(const frac of [1,0.5]){
-        const dr=a.legs*frac; if(dr<1) continue;
-        const nx=Math.round(a.x+Math.cos(th)*dr), ny=Math.round(a.y+Math.sin(th)*dr);
-        if(nx<0||ny<0||nx>=P.W||ny>=P.H) continue;
-        const ck=ny*P.W+nx; if(seen.has(ck)) continue;
-        const dd=dist(a.x,a.y,nx,ny);
-        /* only offer destinations it could actually take - a full cell it
-           cannot out-size is not a candidate at all */
-        if(dd<=a.legs+1e-9 && entryFor(w,idx,a,nx,ny)){
-          seen.add(ck); cands.push({x:nx,y:ny,d:dd});
-        }
-      }
+    for(const o of MOVE_OFFS[a.legs]){
+      const nx=a.x+o.dx, ny=a.y+o.dy;
+      if(nx<0||ny<0||nx>=P.W||ny>=P.H) continue;
+      if(entryFor(w,idx,a,nx,ny)) cands.push({x:nx,y:ny,d:o.d});
     }
   }
 
