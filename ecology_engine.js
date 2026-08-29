@@ -165,12 +165,30 @@ const DEFAULTS = {
   starveBelow: 1,
   babyFat: 2,             // DECISION: newborn's starting fat
   initFat: 8,             // founders arrive fed but not rich
+  foundersPer: 10,        // individuals per founding species
+  founders: null,         // explicit founder list, or null to draw at random
 
   /* --- the three risk-tolerance parameters ----------------------------- */
   reproReserveSteps: 15,  // keep 15 steps of body metabolism before breeding
   dangerWeight: 6.0,      // fear of a predator standing on your cell
   braveryFloor: 0.25,     // a starving animal keeps only this fraction of it
   mateWeight: 3.0,        // pull of a visible eligible mate
+
+  /* MATE-SEEKING AS A DRIVE (Joe, 2026-08-28). It used to be gated hard on
+     affordability: an animal one crumb short of a litter had literally zero
+     interest in its own kind, then full interest a step later. Hunger has
+     never worked that way - it is a deficit that grows - and neither should
+     this. Now the urge rises with how close to ready an animal is, so it
+     starts CLOSING on a partner before it can pay, and grows further the
+     longer it goes unmated. Rare species benefit most, which is exactly the
+     Allee relief a new carnivore lineage needs: it can no longer be true
+     that the only two carnivores in the world ignore each other because
+     neither has quite finished eating.
+     Actually spending fat on offspring still requires affordability - this
+     changes who walks toward whom, not who can pay. */
+  mateUrgeSteps: 120,     // unmated steps at which loneliness saturates
+  mateUrgeLonely: 2.0,    // multiplier on the urge when fully lonely
+  carnMateBoost: 1.0,     // extra weight for carnivores specifically
 
   /* QUESTING (Joe, 2026-08-28). An animal carrying enough fat for
      questLitters offspring has nothing left to gain by grazing and
@@ -284,12 +302,16 @@ function newWorld(seed, opts){
                  drains it, the cap keeps an unwatched wall run bounded. */
               emergences:[],
               log:[] };
-  w.founders = randomFounders(rnd);
+  /* Founders may be supplied explicitly (the lab's setup panel does this):
+     each entry may carry legs/body/mouth/eyes, a carn flag, and a count.
+     Anything omitted falls back to the random draw. */
+  w.founders = (P.founders && P.founders.length) ? P.founders : randomFounders(rnd);
   /* ten founders scattered within an 18x18 patch in each corner */
   const corners=[[0,0],[P.W-18,0],[0,P.H-18],[P.W-18,P.H-18]];
   w.founders.forEach((sp,i)=>{
     const [cx,cy]=corners[i];
-    for(let k=0;k<10;k++){
+    const many = (sp.count===undefined) ? P.foundersPer : sp.count;
+    for(let k=0;k<many;k++){
       /* founders respect the cap too - retry a few times for an open cell */
       let px=0, py=0;
       for(let tries=0; tries<40; tries++){
@@ -299,7 +321,8 @@ function newWorld(seed, opts){
       }
       w.animals.push({ id:w.nextId++, x:px, y:py,
         legs:sp.legs, body:sp.body, mouth:sp.mouth, eyes:sp.eyes,
-        fat:P.initFat, carn:false, age:0, moved:0, founder:sp.name });
+        fat:P.initFat, carn:!!sp.carn, age:0, moved:0,
+        founder:sp.name||('corner'+(i+1)) });
     }
   });
   return w;
@@ -486,6 +509,26 @@ function reserveFloor(w,a){
 function reproThreshold(w,a){
   return Math.max(a.legs+a.body+a.mouth, litterShare(w,a)+reserveFloor(w,a));
 }
+/* 0..1 desire to be near a mate: mostly "how close am I to affording a
+   litter", amplified by how long it has been. Deliberately quadratic so a
+   half-provisioned animal is only mildly interested. */
+function mateUrge(w,a,h){
+  /* SURVIVAL FIRST. The old hard gate (r>0) implicitly guaranteed the
+     animal had surplus fat before it could care about mates. Replacing it
+     with a proximity ramp removed that guarantee, and a first cut without
+     this hunger term emptied every world in 6,000 steps: animals courted
+     instead of eating and starved in company (measured - populations of 3).
+     Multiplying by (1-hunger) restores the priority - a hungry animal has
+     no interest in romance - while still letting a merely-peckish one
+     start closing on a partner before it can pay. */
+  const t=reproThreshold(w,a);
+  const prox=Math.min(1, a.fat/Math.max(1e-9,t));
+  const lonely=Math.min(1, (a.sinceMate||0)/w.P.mateUrgeSteps);
+  const amp=1 + (w.P.mateUrgeLonely-1)*lonely;
+  const hg=(h===undefined)?hunger(w,a):h;
+  return prox*prox*amp*Math.max(0,1-hg)*(a.carn ? w.P.carnMateBoost : 1);
+}
+
 function reproReady(w,a){
   const t=reproThreshold(w,a);
   return a.fat<=t ? 0 : Math.min(1,(a.fat-t)/t);
@@ -612,6 +655,15 @@ function act(w, a, idx){
     else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b)*convEff(a)*preyValue(p.b)/(1+dist(c.x,c.y,p.x,p.y))); }
     let mv=0;
     const mw=P.mateWeight*(questing?P.questBoost:1);
+    /* LOCAL attraction stays gated on actual readiness r. Driving it with
+       the (much larger) urge instead emptied every world: a fed animal's
+       food score falls to ~0 by satiety, so an always-on kin pull became
+       the strongest term in the movement score, herds collapsed onto each
+       other, and with two animals to a cell they milled instead of grazing
+       and starved in company. Bisected: this one line, 5,028 animals vs 3.
+       The urge earns its keep in the SEARCH rule below instead, where it
+       moves lonely animals that can see no kin at all - which is the case
+       a rare lineage is actually in. */
     if(r>0) for(const m of see.kin) mv=Math.max(mv, mw*r/(1+dist(c.x,c.y,m.x,m.y)));
     /* nothing of its own kind in view: travel the chosen bearing, and
        prefer a long stride along it to a short one */
@@ -630,7 +682,7 @@ function act(w, a, idx){
      statue, and reunion of a scattered species is impossible. */
   if(best.score<=1e-6 && a.legs>0 && cands.length>1 &&
      ( (drive>0.2 && (a.carn? !see.prey.length : !see.grassSpots.length)) ||
-       (r>0 && !see.kin.length) )){
+       (mateUrge(w,a,h)>0.35 && !see.kin.length) )){
     best={kind:'move', score:0, to:cands[1+Math.floor(w.rnd()*(cands.length-1))]};
   }
 
@@ -724,6 +776,7 @@ function mate(w, mom, dad, idx){
     }
     const bk=spot.y*P.W+spot.x;
     if(idx[bk]) idx[bk].push(baby); else idx[bk]=[baby];
+    mom.sinceMate=0; dad.sinceMate=0;
     madeQueue.push(baby); made++; w.births++; if(baby.carn) w.carnBorn++;
     if(made>=6) break;   // engine guard: one pair, one step, six births max
   }
@@ -762,6 +815,7 @@ function step(w){
        population cap on it (measured). */
     a.fat -= P.moveCostPer*a.moved + P.bodyCostPer*basal(a,P);
     a.age++;
+    a.sinceMate=(a.sinceMate||0)+1;
     if(a.fat<P.starveBelow){ a.dead='starved'; w.starved++;
       if(a.carn){ w.carnStarved++; w.carnAgeSum+=a.age; } }
   }
