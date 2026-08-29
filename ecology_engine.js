@@ -322,6 +322,8 @@ function newWorld(seed, opts){
   const w = { P, rnd, grass, quality, animals:[], step:0, nextId:1,
               births:0, starved:0, eaten:0, mutants:0,
               carnFlips:0, carnBorn:0, carnStarved:0, carnAgeSum:0, evictions:0,
+              explain:false,       // when true, every decision is recorded
+              whys:[],             // this step's decision records
               preyLog:new Map(),   // predator species -> prey species -> kills
               /* the phylogeny record: every mutant birth is a speciation
                  EVENT - child species, parent species, when. A consumer
@@ -332,11 +334,18 @@ function newWorld(seed, opts){
   /* Founders may be supplied explicitly (the lab's setup panel does this):
      each entry may carry legs/body/mouth/eyes, a carn flag, and a count.
      Anything omitted falls back to the random draw. */
-  w.founders = (P.founders && P.founders.length) ? P.founders : randomFounders(rnd, P);
+  /* An explicit list is honoured even when EMPTY - that is how the
+     microscope asks for a bare world it will populate by hand. Only null
+     or undefined means "draw me some". */
+  w.founders = P.founders ? P.founders : randomFounders(rnd, P);
   /* Founders scatter within an 18x18 patch in a corner; with eight
      populations the corners take two apiece, so each hunter starts in the
      same country as a grazer it can actually eat. */
-  const corners=[[0,0],[P.W-18,0],[0,P.H-18],[P.W-18,P.H-18]];
+  /* Founder patches sized to the world: on a 10x10 study grid the old
+     fixed 18-cell patch put corners at negative coordinates and indexed
+     off the end of the grass array. */
+  const patch=Math.max(1, Math.min(18, Math.floor(Math.min(P.W,P.H)/2)));
+  const corners=[[0,0],[P.W-patch,0],[0,P.H-patch],[P.W-patch,P.H-patch]];
   w.founders.forEach((sp,i)=>{
     const [cx,cy]=corners[i%4];
     const many = (sp.count!==undefined) ? sp.count
@@ -345,7 +354,7 @@ function newWorld(seed, opts){
       /* founders respect the cap too - retry a few times for an open cell */
       let px=0, py=0;
       for(let tries=0; tries<40; tries++){
-        px=cx+Math.floor(rnd()*18); py=cy+Math.floor(rnd()*18);
+        px=cx+Math.floor(rnd()*patch); py=cy+Math.floor(rnd()*patch);
         let n=0; for(const b of w.animals) if(b.x===px&&b.y===py) n++;
         if(n<P.cellCap) break;
       }
@@ -617,6 +626,27 @@ function act(w, a, idx){
      random-walking on the spot - which is the difference between searching
      and milling. */
   const questing = P.questLitters>0 && r>0 && a.fat >= questAt;
+
+  /* EXPLAIN MODE (w.explain, off in every production run): record the state
+     an animal decided from and every option it weighed, so a microscope can
+     show not just what happened but WHY. Costs nothing when the flag is
+     off - a single boolean test per animal per step. */
+  const why = w.explain ? {
+    step:w.step+1, id:a.id, x:a.x, y:a.y, carn:a.carn, fat:+a.fat.toFixed(3),
+    traits:{legs:a.legs, body:a.body, mouth:a.mouth, eyes:a.eyes},
+    basal:basal(a,P), upkeep:+(P.bodyCostPer*basal(a,P)).toFixed(3),
+    hunger:+h.toFixed(3), drive:+drive.toFixed(3), ready:+r.toFixed(3),
+    mateUrge:+mateUrge(w,a,h).toFixed(3), questing:questing,
+    reproThreshold:+reproThreshold(w,a).toFixed(2),
+    grassHere:+w.grass[a.y*P.W+a.x].toFixed(2),
+    exposure:+exposureAt(w,a,a.x,a.y).toFixed(3),
+    sees:{ grass:see.grassSpots.length, prey:see.prey.length,
+           kin:see.kin.length, mates:see.mates.length,
+           predators:see.predators.length },
+    options:[]
+  } : null;
+  const note = why ? (kind,score,parts)=>why.options.push(
+      {kind, score:+score.toFixed(3), parts}) : ()=>{};
   if(questing){
     if(a.qt===undefined || a.qt<=0){ a.qdir=w.rnd()*Math.PI*2; a.qt=P.questHold; }
     a.qt--;
@@ -656,14 +686,22 @@ function act(w, a, idx){
       /* hunger alone prices a meal: a comfortable animal does not eat, so
          fat is bounded near the comfort horizon and grazing pressure tracks
          real metabolic need instead of hoarding without limit */
-      const s = drive*gain - fearAt(w,a,a.x,a.y,see.predators,h);
+      const fr=fearAt(w,a,a.x,a.y,see.predators,h);
+      const s = drive*gain - fr;
+      note('graze', s, {intake:+gain.toFixed(2), drive:+drive.toFixed(3),
+                        fear:+fr.toFixed(3)});
       if(s>best.score) best={kind:'graze', score:s, gain};
     }
   } else {
     const here=see.prey.filter(p=>p.d===0 && !p.b.dead);
     if(here.length){
       const tgt=here[0];
-      const s=drive*catchProb(w,tgt.b)*convEff(a)*preyValue(tgt.b) - fearAt(w,a,a.x,a.y,see.predators,h);
+      const cp=catchProb(w,tgt.b), ce=convEff(a), pv=preyValue(tgt.b);
+      const fr=fearAt(w,a,a.x,a.y,see.predators,h);
+      const s=drive*cp*ce*pv - fr;
+      note('hunt', s, {prey:key(tgt.b), catchP:+cp.toFixed(3),
+                       efficiency:+ce.toFixed(3), meal:+pv.toFixed(2),
+                       drive:+drive.toFixed(3), fear:+fr.toFixed(3)});
       if(s>best.score) best={kind:'hunt', score:s, target:tgt.b};
     }
   }
@@ -673,7 +711,10 @@ function act(w, a, idx){
       /* mating outranks a meal whenever both are possible and the animal is
          ready - the mateWeight scale (risk parameter 3) is what let it walk
          here through fear in earlier steps */
-      const s = P.mateWeight*(1+r)*2 - fearAt(w,a,a.x,a.y,see.predators,h);
+      const fr=fearAt(w,a,a.x,a.y,see.predators,h);
+      const s = P.mateWeight*(1+r)*2 - fr;
+      note('mate', s, {partner:near[0].b.id, ready:+r.toFixed(3),
+                       fear:+fr.toFixed(3)});
       if(s>best.score) best={kind:'mate', score:s, partner:near[0].b};
     }
   }
@@ -702,7 +743,12 @@ function act(w, a, idx){
       const dot=(dx*Math.cos(a.qdir)+dy*Math.sin(a.qdir))/len;
       if(dot>0) mv=Math.max(mv, P.questDrive*dot*(len/Math.max(1,a.legs)));
     }
-    const s = v + mv - fearAt(w,a,c.x,c.y,see.predators,h) - P.moveCostPer*c.d;
+    const fr=fearAt(w,a,c.x,c.y,see.predators,h);
+    const s = v + mv - fr - P.moveCostPer*c.d;
+    /* the zero-distance candidate is standing still, not moving */
+    if(why) note(c.d===0 ? 'stay' : ('move '+c.x+','+c.y), s,
+      {food:+v.toFixed(3), mate:+mv.toFixed(3), fear:+fr.toFixed(3),
+       travel:+(P.moveCostPer*c.d).toFixed(3), dist:+c.d.toFixed(2)});
     if(s>best.score) best={kind:'move', score:s, to:c};
   }
 
@@ -714,6 +760,15 @@ function act(w, a, idx){
      ( (drive>0.2 && (a.carn? !see.prey.length : !see.grassSpots.length)) ||
        (mateUrge(w,a,h)>0.35 && !see.kin.length) )){
     best={kind:'move', score:0, to:cands[1+Math.floor(w.rnd()*(cands.length-1))]};
+  }
+
+  if(why){
+    /* keep the field of options readable: the winner plus the nine next
+       best, which is enough to see what it was weighed against */
+    why.options.sort((p,q)=>q.score-p.score);
+    why.options=why.options.slice(0,10);
+    why.chose=best.kind; why.chosenScore=+best.score.toFixed(3);
+    a._why=why; w.whys.push(why);
   }
 
   /* ---- execute ---- */
@@ -816,6 +871,7 @@ let madeQueue=[];
 /* ---- one world step ------------------------------------------------------ */
 function step(w){
   const P=w.P;
+  if(w.explain) w.whys=[];         // one step's worth, never accumulating
   /* Grass first, and now the land differs: each cell's quality q sets both
      its compounding rate (growLo..growHi) and how fast it re-sprouts from
      bare. Good patches recover quickly and stand tall; poor patches are
@@ -885,5 +941,21 @@ function stats(w){
            topSpecies: [...sp.entries()].sort((a,b)=>b[1]-a[1]).slice(0,5) };
 }
 
-global.Eco = { newWorld, step, stats, DEFAULTS, key };
+/* the microscope needs to build animals and read the model's own verdicts */
+function makeAnimal(w, spec){
+  const a={ id:w.nextId++, x:spec.x|0, y:spec.y|0,
+    legs:spec.legs|0, body:Math.max(1,spec.body|0),
+    mouth:Math.max(1,spec.mouth|0), eyes:spec.eyes|0,
+    fat:spec.fat===undefined?8:+spec.fat, carn:!!spec.carn,
+    age:0, moved:0, sinceMate:0, founder:spec.name||'placed' };
+  w.animals.push(a); return a;
+}
+global.Eco = { newWorld, step, stats, DEFAULTS, key, makeAnimal,
+  /* the same verdicts the engine uses, exposed for inspection */
+  info:(w,a)=>({ basal:basal(a,w.P), upkeep:w.P.bodyCostPer*basal(a,w.P),
+    hunger:hunger(w,a), ready:reproReady(w,a), urge:mateUrge(w,a),
+    threshold:reproThreshold(w,a), litterShare:litterShare(w,a),
+    reserveFloor:reserveFloor(w,a), convEff:convEff(a),
+    exposure:exposureAt(w,a,a.x,a.y), catchProb:catchProb(w,a),
+    size:sizeOf(a,w.P) }) };
 })(typeof window!=='undefined' ? window : globalThis);
