@@ -165,7 +165,9 @@ const DEFAULTS = {
   starveBelow: 1,
   babyFat: 2,             // DECISION: newborn's starting fat
   initFat: 8,             // founders arrive fed but not rich
-  foundersPer: 10,        // individuals per founding species
+  herbPerSpecies: 20,     // individuals in each founding herbivore species
+  carnPerSpecies: 10,     // ... and in each founding carnivore species
+  foundersPer: 10,        // fallback when a founder gives no count
   founders: null,         // explicit founder list, or null to draw at random
 
   /* --- the three risk-tolerance parameters ----------------------------- */
@@ -226,20 +228,33 @@ const DEFAULTS = {
   maxAnimals: 20000,      // engine safety valve, far above any balanced run
 };
 
-/* Four founder species with RANDOM traits, drawn per world from the seeded
-   RNG (Joe, 2026-08-28 - the fixed hand-picked four are gone). Each trait
-   is uniform 1..6: low enough that evolution can go both ways, high enough
-   that a founder is not born crippled. Duplicate draws re-roll so the four
-   corners start as four distinct breeding populations. */
-function randomFounders(rnd){
+/* EIGHT founder species with random traits: a grazer and a hunter for each
+   corner (Joe, 2026-08-28). Seeding predators at t0 rather than waiting for
+   a diet-flip mutant to solve its own Allee problem is the only reliable
+   way to get a functioning predator guild - measured repeatedly.
+
+   Each trait is uniform 1..6, low enough that evolution can go both ways.
+   The corner's hunter is drawn with a mouth that EXCEEDS its neighbour
+   grazer's body, because a carnivore that cannot open its jaws wide enough
+   for the only prey in reach is dead on arrival, and a founder should at
+   least be viable. Duplicate trait vectors re-roll so every population
+   starts reproductively distinct. */
+function randomFounders(rnd, P){
   const out=[], seen=new Set();
-  while(out.length<4){
-    const f={ name:'corner'+(out.length+1),
-      legs:1+Math.floor(rnd()*6), body:1+Math.floor(rnd()*6),
-      mouth:1+Math.floor(rnd()*6), eyes:1+Math.floor(rnd()*6) };
-    const k=f.legs+','+f.body+','+f.mouth+','+f.eyes;
-    if(seen.has(k)) continue;
-    seen.add(k); out.push(f);
+  const draw=()=>1+Math.floor(rnd()*6);
+  for(let c=0;c<4;c++){
+    let herb;
+    do { herb={ name:'grazer'+(c+1), legs:draw(), body:draw(),
+                mouth:draw(), eyes:draw(), carn:false, count:P.herbPerSpecies };
+    } while(seen.has(herb.legs+','+herb.body+','+herb.mouth+','+herb.eyes));
+    seen.add(herb.legs+','+herb.body+','+herb.mouth+','+herb.eyes);
+    let carn;
+    do { carn={ name:'hunter'+(c+1), legs:draw(), body:draw(),
+                mouth:Math.min(10, herb.body+1+Math.floor(rnd()*4)),
+                eyes:draw(), carn:true, count:P.carnPerSpecies };
+    } while(seen.has(carn.legs+','+carn.body+','+carn.mouth+','+carn.eyes));
+    seen.add(carn.legs+','+carn.body+','+carn.mouth+','+carn.eyes);
+    out.push(herb, carn);
   }
   return out;
 }
@@ -305,12 +320,15 @@ function newWorld(seed, opts){
   /* Founders may be supplied explicitly (the lab's setup panel does this):
      each entry may carry legs/body/mouth/eyes, a carn flag, and a count.
      Anything omitted falls back to the random draw. */
-  w.founders = (P.founders && P.founders.length) ? P.founders : randomFounders(rnd);
-  /* ten founders scattered within an 18x18 patch in each corner */
+  w.founders = (P.founders && P.founders.length) ? P.founders : randomFounders(rnd, P);
+  /* Founders scatter within an 18x18 patch in a corner; with eight
+     populations the corners take two apiece, so each hunter starts in the
+     same country as a grazer it can actually eat. */
   const corners=[[0,0],[P.W-18,0],[0,P.H-18],[P.W-18,P.H-18]];
   w.founders.forEach((sp,i)=>{
-    const [cx,cy]=corners[i];
-    const many = (sp.count===undefined) ? P.foundersPer : sp.count;
+    const [cx,cy]=corners[i%4];
+    const many = (sp.count!==undefined) ? sp.count
+               : (sp.carn ? P.carnPerSpecies : P.herbPerSpecies);
     for(let k=0;k<many;k++){
       /* founders respect the cap too - retry a few times for an open cell */
       let px=0, py=0;
