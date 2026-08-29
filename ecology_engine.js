@@ -165,8 +165,17 @@ const DEFAULTS = {
   starveBelow: 1,
   babyFat: 2,             // DECISION: newborn's starting fat
   initFat: 8,             // founders arrive fed but not rich
-  herbPerSpecies: 20,     // individuals in each founding herbivore species
-  carnPerSpecies: 10,     // ... and in each founding carnivore species
+  /* Founding NUMBERS are drawn per species, not fixed (Joe, 2026-08-28):
+     founder density turned out to matter as much as founder traits - in the
+     first guild batch the worlds that kept their predators had started with
+     46 carnivores on average against 13 for the two that lost them. Drawing
+     the counts makes every world an independent sample of that variable
+     instead of repeating one recipe. herbPerSpecies/carnPerSpecies remain
+     as the fallback when a founder arrives without a count of its own. */
+  herbCountLo: 5,  herbCountHi: 40,
+  carnCountLo: 2,  carnCountHi: 20,
+  herbPerSpecies: 20,     // fallback individuals per founding herbivore
+  carnPerSpecies: 10,     // ... and per founding carnivore
   foundersPer: 10,        // fallback when a founder gives no count
   founders: null,         // explicit founder list, or null to draw at random
 
@@ -242,16 +251,19 @@ const DEFAULTS = {
 function randomFounders(rnd, P){
   const out=[], seen=new Set();
   const draw=()=>1+Math.floor(rnd()*6);
+  const cnt=(lo,hi)=>lo+Math.floor(rnd()*(hi-lo+1));
   for(let c=0;c<4;c++){
     let herb;
     do { herb={ name:'grazer'+(c+1), legs:draw(), body:draw(),
-                mouth:draw(), eyes:draw(), carn:false, count:P.herbPerSpecies };
+                mouth:draw(), eyes:draw(), carn:false,
+                count:cnt(P.herbCountLo, P.herbCountHi) };
     } while(seen.has(herb.legs+','+herb.body+','+herb.mouth+','+herb.eyes));
     seen.add(herb.legs+','+herb.body+','+herb.mouth+','+herb.eyes);
     let carn;
     do { carn={ name:'hunter'+(c+1), legs:draw(), body:draw(),
                 mouth:Math.min(10, herb.body+1+Math.floor(rnd()*4)),
-                eyes:draw(), carn:true, count:P.carnPerSpecies };
+                eyes:draw(), carn:true,
+                count:cnt(P.carnCountLo, P.carnCountHi) };
     } while(seen.has(carn.legs+','+carn.body+','+carn.mouth+','+carn.eyes));
     seen.add(carn.legs+','+carn.body+','+carn.mouth+','+carn.eyes);
     out.push(herb, carn);
