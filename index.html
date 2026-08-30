@@ -548,7 +548,9 @@
   <div class="row"><span class="k">population</span><br><span class="v" id="pop"></span></div>
   <div class="row"><span class="k">grass</span><br><span class="v" id="grass"></span></div>
   <div class="row"><span class="k">pace</span><br><span class="v" id="pace"></span>
-    <div><button data-s="1">1 paced</button><button data-s="2">2 fast</button><button data-s="3">3 max</button></div></div>
+    <div><button data-s="1">1 &middot; half-second steps</button>
+         <button data-s="2">2 &middot; every step</button>
+         <button data-s="3">3 &middot; max</button></div></div>
   <div id="restartRow"><button id="againSame">restart &middot; same settings</button><button id="againRand">restart &middot; new random world</button></div><div id="sp"></div>
 </div>
 <script>
@@ -557,7 +559,9 @@
    the lab wants evolutionary time more than watchability - and COMP_EVERY 5
    keeps a 100,000-step run's composition file near 20 MB. */
 const LAB = { regrowEvery:4, maxAnimals:30000, compEvery:5, flushEvery:1000,
-              speeds:{1:'paced', 2:'fast', 3:'max'} };
+              speeds:{1:'every step · 2 per second',
+                      2:'every step · as fast as it goes',
+                      3:'max · screen skips steps'} };
 
 /* The page opens ARMED, not running: the founders wait at step zero until
    the start button, so the data folder can be chosen before step one and
@@ -777,11 +781,32 @@ function draw(){
   if(ls) ls.innerHTML=EcoUI.settingsCard(world, seed);
 }
 
-let lastDraw=0;
+let lastDraw=0, lastPaced=0;
+/* THE THREE PACES (rewritten 2026-08-29). They used to differ only in how
+   many steps each frame ran, while the redraw was pinned at one every 400ms
+   for all of them - so every setting looked the same on screen, and "paced"
+   was in fact stepping about sixty times a second and showing one frame in
+   twenty-four of them. Each pace now owns its redraw as well:
+
+     1  one step every half second, and you SEE every step
+     2  one step per animation frame, drawn every time - every step visible,
+        as fast as the machine will do it
+     3  as much simulation as fits in 140ms a frame, redrawn a few times a
+        second: the fastest way to get deep into a run, and the only one
+        where the screen skips steps                                        */
 function frame(now){
   requestAnimationFrame(frame);
   if(paused) return;
-  runBatch(speed===1?0:speed===2?45:140);     // budget 0 = exactly one step
+  if(speed===1){
+    if(now-lastPaced>=500){ lastPaced=now; runBatch(0); lastDraw=now; draw(); }
+    return;
+  }
+  if(speed===2){
+    runBatch(0);                              // budget 0 = exactly one step
+    lastDraw=now; draw();
+    return;
+  }
+  runBatch(140);
   if(now-lastDraw>400){ lastDraw=now; draw(); }
 }
 /* hidden-tab catch-up: rAF freezes when the window is hidden; a 1 s timer
@@ -806,7 +831,7 @@ document.getElementById('startBtn').onclick=()=>{
 };
 document.getElementById('pauseBtn').onclick=()=>{ paused=!paused; draw(); };
 for(const b of document.querySelectorAll('[data-s]'))
-  b.onclick=()=>{ speed=+b.dataset.s; };
+  b.onclick=()=>{ speed=+b.dataset.s; lastPaced=0; if(started) draw(); };
 const stopBox=document.getElementById('stopAt');
 stopBox.value=stopAt;
 stopBox.onchange=()=>{ stopAt=Math.max(0,parseInt(stopBox.value||'0',10)); runDone=false; };
