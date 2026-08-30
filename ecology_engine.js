@@ -312,6 +312,44 @@ const DEFAULTS = {
      Default 0 pending its own A/B; adjustable on the lab's setup sheet. */
   huntCost: 0,
 
+  /* INTRAGUILD SIZE GAP (Joe, 2026-08-29). A carnivore may only take ANOTHER
+     CARNIVORE if it is substantially bigger, measured on legs + body + mouth:
+     no advantage at all when they are the same size, rising to a free hand at
+     intraguildGap units apart. Predation on HERBIVORES is untouched.
+
+     The point is that it forbids cannibalism as a CONSEQUENCE rather than by
+     decree - two animals of one species are identical in size, so the term is
+     exactly zero and a species can never eat itself. It also opens room for
+     more than one carnivore trophic level: a big enough hunter can take
+     smaller hunters, but only as a minor part of its diet or when they are
+     unusually abundant, which is how intraguild predation actually works.
+
+     Measured motivation: the resident predator was losing 25-30% of its
+     deaths to being eaten, at roughly twice the background rate, because at
+     L1 B1 M3 its mouth cleared its own body.
+
+     Combined with concealment by MIN, not by product (Joe's call): a hunter
+     must be both big enough AND catch its target in the open, rather than the
+     two effects diluting one another. 0 disables the rule. */
+  intraguildGap: 3,   // SHIPPED 2026-08-29 after the A/B below
+
+  /* A/B at 10,000 steps, 6 paired seeds, gap 0 vs 3 vs 5. The rule does what
+     it was built for and nothing more:
+         gap        0       3       5
+         carnivore P (eaten)   22.5%   0.5%   0.0%     <- cannibalism gone
+         carnivore count        45     68.5    70      <- guild +55%
+         kills / 1000 steps   3202    5018    4788     <- predation +57%
+         HERBIVORE P            5.0%   5.0%   5.0%     <- unchanged
+         carnivore size classes 3.0    3.0     2.5     <- no second level
+     3 over 5 for the slightly wider carnivore size spread (0.65 vs 0.40) and
+     the higher kill rate. Note what did NOT happen: a guild half again as
+     large, killing half again as much, moved the herbivores' predation share
+     not at all - the extra kills were absorbed by a larger, fatter prey
+     population. And carnivores all grew TOGETHER (mean size 9.55 -> 11.4)
+     rather than splitting into classes, because the advantage the rule gives
+     is purely relative: everyone climbs and the gap stays near zero. It is a
+     Red Queen race, not diversifying selection. */
+
   /* ---- WHAT THE A/B ACTUALLY MEASURED (6 arms x 6 paired seeds x 20,000
      steps, 160x90, regrowEvery 4). Medians at step 20,000:
 
@@ -894,10 +932,23 @@ function convEff(a){ return 0.9 - 0.04*(a.eyes+a.legs); }
 /* Joe's concealment rule: the prey's size S = legs+body+mouth+fat against
    the grass on the cell it stands in. Hidden (grass >= S): 10%. Exposed:
    rises linearly to 100% on bare ground. */
-function catchProb(w,prey){
+/* Bulk for the intraguild contest: the whole feeding apparatus, deliberately
+   a different measure from sizeOf (territory), preyValue (the meal) and basal
+   (the running cost), because this is about physically overpowering another
+   hunter rather than about ground, food value or metabolism. */
+function huntSize(a){ return a.legs+a.body+a.mouth; }
+
+/* `hunter` is optional: without it this is pure concealment - the chance the
+   prey is caught if something attacks it - which is what the info panel and
+   the microscope want. With it, a carnivore hunting another CARNIVORE is also
+   gated on the size gap. */
+function catchProb(w,prey,hunter){
   const S=prey.legs+prey.body+prey.fat;
   const g=w.grass[prey.y*w.P.W+prey.x];
-  return g>=S ? 0.10 : 1 - 0.9*(g/Math.max(S,1e-9));
+  const conceal = g>=S ? 0.10 : 1 - 0.9*(g/Math.max(S,1e-9));
+  if(!hunter || !prey.carn || !w.P.intraguildGap) return conceal;
+  const gap=(huntSize(hunter)-huntSize(prey))/w.P.intraguildGap;
+  return Math.min(conceal, Math.max(0, Math.min(1, gap)));
 }
 /* the same exposure, evaluated for ME if I stood at (px,py) - what fear
    and hiding decisions are made of */
@@ -1089,7 +1140,7 @@ function act(w, a, idx){
     const here=see.prey.filter(p=>p.d===0 && !p.b.dead);
     if(here.length){
       const tgt=here[0];
-      const cp=catchProb(w,tgt.b), ce=convEff(a), pv=preyValue(tgt.b);
+      const cp=catchProb(w,tgt.b,a), ce=convEff(a), pv=preyValue(tgt.b);
       const fr=fearAt(w,a,a.x,a.y,see.predators,h);
       /* the attacker prices the risk it is taking: what a miss would cost,
          weighted by how likely a miss is */
@@ -1134,7 +1185,7 @@ function act(w, a, idx){
     const cX=CAND_X[ci], cY=CAND_Y[ci], cD=CAND_D[ci];
     let v=0;
     if(!a.carn){ for(const g of see.grassSpots) v=Math.max(v,drive*g.v/dp1(cX,cY,g.x,g.y)); }
-    else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b)*convEff(a)*preyValue(p.b)/dp1(cX,cY,p.x,p.y)); }
+    else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b,a)*convEff(a)*preyValue(p.b)/dp1(cX,cY,p.x,p.y)); }
     let mv=0;
     const mw=P.mateWeight*(questing?P.questBoost:1);
     /* LOCAL attraction stays gated on actual readiness r. Driving it with
@@ -1221,7 +1272,7 @@ function act(w, a, idx){
     a.fat+=best.gain;
     w.ledger.grazed+=best.gain;
   } else if(best.kind==='hunt'){
-    if(w.rnd()>=catchProb(w,best.target)){
+    if(w.rnd()>=catchProb(w,best.target,a)){
       /* THE HUNT FAILED. The prey fought back or got away, and the attacker
          pays for it in proportion to what it took on. Booked to the ledger as
          burned fat so the mass balance still closes. */
@@ -1540,6 +1591,7 @@ function makeAnimal(w, spec){
   w.animals.push(a); return a;
 }
 global.Eco = { newWorld, step, stats, DEFAULTS, key, parseKey, makeAnimal,
+  catchProbFor:catchProb,
   /* the same verdicts the engine uses, exposed for inspection */
   info:(w,a)=>({ basal:basal(a,w.P), upkeep:w.P.bodyCostPer*basal(a,w.P),
     hunger:hunger(w,a), ready:reproReady(w,a), urge:mateUrge(w,a),
