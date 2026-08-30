@@ -504,6 +504,10 @@
       <input type="hidden" id="huntCost" value="0">
       <input type="hidden" id="allometrySpan" value="2">
       <input type="hidden" id="sizeEyes" value="0">
+      <input type="hidden" id="huntReach" value="1">
+      <input type="hidden" id="convEyes" value="0">
+      <input type="hidden" id="convLegs" value="0.04">
+      <input type="hidden" id="intraguildGap" value="3">
       <div class="field"><label for="mortality">background death <span class="u">chance per step</span></label>
         <input type="number" id="mortality" value="0.002" min="0" max="0.05" step="0.001"></div>
       <div class="field"><label for="provLowSteps">f provisioning <span class="u">steps of upkeep</span></label>
@@ -952,7 +956,9 @@ document.getElementById('go').onclick=()=>{
       questLitters:num('questLitters'), carnMateBoost:num('carnMateBoost'),
       huntCost:num('huntCost'), allometrySpan:num('allometrySpan'),
       sizeEyes:num('sizeEyes'),
-      mortality:num('mortality'),
+      mortality:num('mortality'), huntReach:num('huntReach'),
+      convEyes:num('convEyes'), convLegs:num('convLegs'),
+      intraguildGap:num('intraguildGap'),
       provLowSteps:num('provLowSteps'), provHighSteps:num('provHighSteps'),
       disturbEvery:num('disturbEvery'), disturbDiamLo:num('disturbDiamLo'),
       disturbDiamHi:num('disturbDiamHi'), disturbKill:num('disturbKill'),

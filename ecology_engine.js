@@ -331,6 +331,39 @@ const DEFAULTS = {
      Combined with concealment by MIN, not by product (Joe's call): a hunter
      must be both big enough AND catch its target in the open, rather than the
      two effects diluting one another. 0 disables the rule. */
+  /* How much an EYE costs a predator in conversion efficiency, separately
+     from how much a LEG costs. They were welded together at 0.04 each in
+     convEff = 0.9 - 0.04(eyes + legs), which taxes detection at the same rate
+     as pursuit - so the animal whose whole livelihood is finding prey pays
+     extra for finding it, on top of the upkeep and breeding-threshold cost
+     every animal pays for eyes. Setting this to 0 keeps the ambush-versus-
+     courser axis on LEGS, where the locomotor cost actually lives, and stops
+     charging for sight. */
+  /* How far a predator can STRIKE, in cells. 0 is the historical rule: it
+     can only take prey standing on its own square, so every attempt costs at
+     least two turns - one to arrive, one to attack - with the prey free to
+     leave in between. Measured consequence: 62-88% of a carnivore's turns
+     are approaches and only 11-38% are attacks. At 1 it can also take prey
+     on the eight neighbouring squares without moving.
+     Deliberately NOT routed through perceive(), which is limited by eyes:
+     the dominant predators evolve to eyes 0, and a blind animal can still
+     strike what it is touching - the same reasoning as touchMates. */
+  huntReach: 1,        // SHIPPED 2026-08-29 - see the note below
+
+  convEyes: 0,         // SHIPPED 2026-08-29 - sight is no longer taxed
+  /* 2x2 at 6,500 steps, 3 seeds, moderate world (grassMax 50, growth 2-18%).
+     The two changes work through DIFFERENT mechanisms:
+         arm            carnivores   kills/1000   carnivore eyes
+         control             35         3031          3.40
+         convEyes 0         102         2814          5.00
+         huntReach 1         35         5542          3.00
+     Dropping the conversion penalty nearly TRIPLES the guild and makes eyes
+     worth buying (3.40 -> 5.00) without raising the kill rate: more predators
+     each killing less. The strike reach leaves the guild the same size and
+     makes each one 83% more lethal. Provisional - n=3, and the run had not
+     finished when these were adopted. */
+  convLegs: 0.04,
+
   intraguildGap: 3,   // SHIPPED 2026-08-29 after the A/B below
 
   /* A/B at 10,000 steps, 6 paired seeds, gap 0 vs 3 vs 5. The rule does what
@@ -895,6 +928,26 @@ function vital(w, k, field){
   v[field]++;
 }
 
+/* Prey within striking distance: the predator's own square, plus the ring
+   around it when huntReach allows. Gape is applied here, so the caller gets
+   only animals it could actually swallow. */
+function reachPrey(w, a, idx){
+  const P=w.P, R=Math.max(0, P.huntReach|0), out=[];
+  for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){
+    const d=Math.sqrt(dx*dx+dy*dy);
+    if(d>R+1e-9) continue;
+    const x=a.x+dx, y=a.y+dy;
+    if(x<0||y<0||x>=P.W||y>=P.H) continue;
+    const cell=idx[y*P.W+x]; if(!cell) continue;
+    for(const b of cell){
+      if(b===a||b.dead) continue;
+      if(!(P.gapeStrict ? a.mouth>b.body : a.mouth>=b.body)) continue;
+      out.push({b,x,y,d});
+    }
+  }
+  return out;
+}
+
 /* Contact-range mate search: same traits, same diet (when dietAssort),
    ready, not yet acted. Independent of eyes - this is touch, not sight. */
 function touchMates(w, a, idx){
@@ -927,7 +980,10 @@ function babySlot(w, idx, mom, carn){
 /* Trophic conversion: what fraction of a kill becomes predator fat.
    Linear in the predator's sensory-locomotor investment (Joe's rule):
    eyes+legs = 0 -> 0.9, eyes+legs = 20 -> 0.1. */
-function convEff(a){ return 0.9 - 0.04*(a.eyes+a.legs); }
+function convEff(a,P){
+  const ce=P?P.convEyes:0.04, cl=P?P.convLegs:0.04;
+  return 0.9 - ce*a.eyes - cl*a.legs;
+}
 
 /* Joe's concealment rule: the prey's size S = legs+body+mouth+fat against
    the grass on the cell it stands in. Hidden (grass >= S): 10%. Exposed:
@@ -1137,18 +1193,21 @@ function act(w, a, idx){
       if(s>best.score) best=o;
     }
   } else {
-    const here=see.prey.filter(p=>p.d===0 && !p.b.dead);
+    const here=reachPrey(w,a,idx);
     if(here.length){
-      const tgt=here[0];
-      const cp=catchProb(w,tgt.b,a), ce=convEff(a), pv=preyValue(tgt.b);
-      const fr=fearAt(w,a,a.x,a.y,see.predators,h);
-      /* the attacker prices the risk it is taking: what a miss would cost,
-         weighted by how likely a miss is */
-      const risk=P.huntCost*(1-cp)*(tgt.b.legs+tgt.b.body);
-      const s=drive*cp*ce*pv - risk - fr;
+      /* weigh EVERY reachable target and take the best, rather than whichever
+         happened to be first in the cell list */
+      const ce=convEff(a,P), fr=fearAt(w,a,a.x,a.y,see.predators,h);
+      let tgt=null, s=-Infinity, cp=0;
+      for(const q of here){
+        const qcp=catchProb(w,q.b,a), pv=preyValue(q.b);
+        const risk=P.huntCost*(1-qcp)*(q.b.legs+q.b.body);
+        const qs=drive*qcp*ce*pv - risk - fr;
+        if(qs>s){ s=qs; tgt=q; cp=qcp; }
+      }
       note('hunt', s, {prey:key(tgt.b), catchP:+cp.toFixed(3),
-                       efficiency:+ce.toFixed(3), meal:+pv.toFixed(2),
-                       risk:+risk.toFixed(3),
+                       efficiency:+ce.toFixed(3), meal:+preyValue(tgt.b).toFixed(2),
+                       reach:+tgt.d.toFixed(2),
                        drive:+drive.toFixed(3), fear:+fr.toFixed(3)});
       const o={kind:'hunt', score:s, target:tgt.b};
       if(!bestAct || s>bestAct.score) bestAct=o;
@@ -1185,7 +1244,7 @@ function act(w, a, idx){
     const cX=CAND_X[ci], cY=CAND_Y[ci], cD=CAND_D[ci];
     let v=0;
     if(!a.carn){ for(const g of see.grassSpots) v=Math.max(v,drive*g.v/dp1(cX,cY,g.x,g.y)); }
-    else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b,a)*convEff(a)*preyValue(p.b)/dp1(cX,cY,p.x,p.y)); }
+    else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b,a)*convEff(a,P)*preyValue(p.b)/dp1(cX,cY,p.x,p.y)); }
     let mv=0;
     const mw=P.mateWeight*(questing?P.questBoost:1);
     /* LOCAL attraction stays gated on actual readiness r. Driving it with
@@ -1283,7 +1342,7 @@ function act(w, a, idx){
     } else {
       best.target.dead='eaten'; w.eaten++;
       vital(w, key(best.target), 'eaten');
-      const gain=convEff(a)*preyValue(best.target);
+      const gain=convEff(a,P)*preyValue(best.target);
       a.fat+=gain;
       w.ledger.predGain+=gain;                  // structure + store, x efficiency
       w.ledger.preyFatLost+=best.target.fat;    // the store the prey carried
@@ -1596,7 +1655,7 @@ global.Eco = { newWorld, step, stats, DEFAULTS, key, parseKey, makeAnimal,
   info:(w,a)=>({ basal:basal(a,w.P), upkeep:w.P.bodyCostPer*basal(a,w.P),
     hunger:hunger(w,a), ready:reproReady(w,a), urge:mateUrge(w,a),
     threshold:reproThreshold(w,a), litterShare:litterShare(w,a),
-    reserveFloor:reserveFloor(w,a), convEff:convEff(a),
+    reserveFloor:reserveFloor(w,a), convEff:convEff(a,w.P),
     exposure:exposureAt(w,a,a.x,a.y), catchProb:catchProb(w,a),
     size:sizeOf(a,w.P) }) };
 })(typeof window!=='undefined' ? window : globalThis);

@@ -70,6 +70,12 @@
           + Math.round((P.disturbCoupled?P.disturbKill:P.disturbGrass)*100)
           + '% of the grass'
         : 'none \u2014 this world is never disturbed'],
+      ['HUNTING', 'gape ' + (P.gapeStrict ? 'mouth > body' : 'mouth \u2265 body')
+        + ' \u00b7 strike reach ' + P.huntReach + (P.huntReach ? ' cells' : ' (own square only)')
+        + ' \u00b7 a kill yields 0.9 \u2212 ' + P.convLegs + '\u00d7legs'
+        + (P.convEyes ? ' \u2212 ' + P.convEyes + '\u00d7eyes' : '')
+        + ' \u00b7 a carnivore needs a size edge of ' + P.intraguildGap
+        + ' (legs+body+mouth) to take another carnivore'],
       ['BUILD', P.allometrySpan
         ? 'legs, body and mouth within ' + P.allometrySpan + ' of each other (eyes unconstrained)'
         : 'no allometric constraint'],
