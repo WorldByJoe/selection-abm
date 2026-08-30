@@ -2,426 +2,596 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Selection</title>
+<title>Selection - an evolving ecology</title>
 <!-- ==========================================================================
-  ecology.html - the community-ecology + evolution simulation, on the wall.
-  The MODEL lives in ecology_engine.js (pure, seeded, jsc-testable); this
-  page only steps it and draws it. Joe's spec, 2026-08-28: grass grows on a
-  160x90 grid, four herbivore species start in the four corners, mating
-  requires trait-identity, 5% of births mutate - and everything after that
-  (lineages meeting, booms, busts, the first carnivore) is emergent.
+  ecology_run.html - the LONG-RUN LABORATORY for Joe's ecology model.
+  Open this file in CHROME (double-click), click "choose data folder", pick a
+  folder (this one is a fine choice), and leave it running. It steps the
+  world as fast as the machine allows and writes two data files per run,
+  named by the run's seed:
 
-  WHAT THE COLOURS MEAN. Ground green = standing grass. Each animal is
-  coloured by its SPECIES - its exact trait combination - with the same
-  colour in the map, the species table, and the community strip, so a
-  species can be followed across all three. Herbivore species walk a
-  golden-angle hue wheel that skips the red band; every carnivore species
-  is a shade of red: predation should be visible the moment it exists.
-  (Founder-lineage colouring is gone - Joe, 2026-08-28: colour follows what
-  the world becomes, not where it started. Founder traits are RANDOM per
-  world now, drawn 1..6 from the seed.)
+    selection_<seed>_composition.csv
+        one row per COMP_EVERY steps; columns: step, pop, grass_total,
+        grass_per_cell, vegetated_pct, then ONE COLUMN PER SPECIES labelled
+        by its traits (L4_B1_M2_E3_H style, _C for carnivores). The file is
+        rewritten in full at each flush so the header always carries every
+        species ever seen - earlier rows fill with zeros. Reads straight
+        into R: read.csv().
 
-  Not in the ring yet - preview with ?pin (or n for a fresh world) until Joe
-  has watched it; then it takes a rotation slot like any other page.
+    selection_<seed>_phylogeny.csv
+        append-style event log, one row per speciation event (every mutant
+        birth whose traits differ from its parents') and one per species
+        extinction: step, event, child, child L/B/M/E/diet, parent. Enough
+        to draw the full tree of who emerged from whom, and when.
+
+  The ENGINE is ecology_engine.js - referenced, not
+  copied, so the lab can never drift from the model the wall runs.
+
+  KEEP THIS WINDOW VISIBLE (its own small window off to the side is fine).
+  Browsers freeze animation callbacks in hidden tabs; a 1 s catch-up timer
+  keeps a hidden run limping, but visible = full speed.
+
+  On extinction the run flushes its files and reseeds a fresh world with new
+  files. Keys: p pause · n new world (flushes first) · 1/2/3 speed.
 ========================================================================== -->
 <style>
-  body{ margin:0; background:#04070a; overflow:hidden; }
-  #cv{ position:fixed; inset:0; width:100vw; height:100vh; }
-  /* THE RESERVE LAYOUT (plume's idiom, Joe's call 2026-08-28): the map keeps
-     the top-left 84% x 84% - EQUAL fractions, so the 16:9 grid keeps square
-     cells - the right rail holds every text panel, and the bottom band
-     belongs to the community strip. One constant (INSET, in the script)
-     drives these CSS variables AND the map geometry, so they cannot drift. */
-  #rail, #band { box-sizing:border-box; }
-  /* The rail runs a smaller type scale than the wall's default: every panel
-     (stats, species table, foot) must fit the 16% column with room to
-     spare, keeping the whole composition inside one 16:9 frame. Scoped
-     token overrides - descendants pick them up automatically. */
-  #rail{
-    --t0:max(24px, calc(118 * var(--ts) * var(--wu)));
-    --t1:max(17px, calc( 64 * var(--ts) * var(--wu)));
-    --t2:max(13px, calc( 47 * var(--ts) * var(--wu)));
-    --t3:max(12px, calc( 36 * var(--ts) * var(--wu)));
-    --t4:max(10px, calc( 27 * var(--ts) * var(--wu)));
-    --t5:max( 9px, calc( 22 * var(--ts) * var(--wu)));
-  }
-  #rail{ position:fixed; top:0; right:0; bottom:0; width:var(--railW);
-    z-index:5; background:#0A0E15; border-left:1px solid rgba(255,255,255,.14);
-    display:flex; flex-direction:column; overflow:hidden;
-    padding:calc(60*var(--wu)) calc(40*var(--wu)) calc(48*var(--wu));
-    gap:calc(26*var(--wu)); }
-  #rail .foot{ order:99; margin-top:auto; }
-  #band{ position:fixed; left:0; right:var(--railW); bottom:0;
-    height:var(--bandH); z-index:5; background:#0A0E15;
-    border-top:1px solid rgba(255,255,255,.14); }
-  #strip{ position:absolute; inset:0; width:100%; height:100%; }
-  #stripcap{ position:absolute; top:calc(12*var(--wu)); left:calc(20*var(--wu));
-    font:400 var(--t4)/1.2 var(--font-num); letter-spacing:.1em;
-    text-transform:uppercase; color:var(--ink-2);
-    text-shadow:0 0 6px rgba(4,7,10,.9); }
-  /* The genome key's four labels are wider than their swatches, so this
-     page opens the strip's gap - scoped here, since plume's strips want
-     the tight default. */
-  #rail .strip .sws{ gap:calc(20*var(--wu)); }
-  /* the sentence re-centres over the MAP, riding above the band */
-  body .lane{ right:var(--railW); bottom:calc(var(--bandH) + 50*var(--wu)); }
-  /* the armed-start overlay (standalone builds only): the founders stand
-     visible in their corners until the button is pressed */
-  #startGate{ position:fixed; left:0; top:0; right:var(--railW);
-    bottom:var(--bandH); display:flex; align-items:center;
-    justify-content:center; z-index:6; }
-  /* An ID rule beats the UA stylesheet's [hidden]{display:none}, so the
-     overlay MUST opt out explicitly - without this the dead button hangs
-     over a running wall, and stays put after start in the standalone.
-     (Seen on the wall, not in any probe: photograph the running thing.) */
-  #startGate[hidden]{ display:none; }
-  #startGate button{ font:400 var(--t2)/1 var(--font-ui); letter-spacing:.08em;
-    color:#eef4fc; background:rgba(10,14,21,.88); cursor:pointer;
-    border:1px solid rgba(255,255,255,.35); border-radius:calc(14*var(--wu));
-    padding:calc(26*var(--wu)) calc(60*var(--wu)); }
-  #startGate button:hover{ background:rgba(27,36,50,.92); }
+  body{ margin:0; background:#06090d; color:#cdd6e4; overflow:hidden;
+        font:14px/1.45 ui-monospace, Menlo, monospace; }
+  #cv{ position:fixed; left:0; top:0; }
+  #strip{ position:fixed; left:0; bottom:0; }
+  #side{ position:fixed; right:0; top:0; bottom:0; width:400px;
+         box-sizing:border-box; padding:18px 20px; background:#0A0E15;
+         border-left:1px solid rgba(255,255,255,.14); overflow:auto; }
+  h1{ font-size:15px; letter-spacing:.12em; margin:0 0 12px; color:#eef4fc; }
+  .row{ margin:7px 0; } .k{ color:#8b96a8; font-size:11px; letter-spacing:.1em;
+        text-transform:uppercase; } .v{ font-size:15px; }
+  button{ background:#1b2432; color:#dfe7f2; border:1px solid #33405a;
+          border-radius:6px; padding:8px 12px; font:inherit; cursor:pointer;
+          margin:4px 4px 4px 0; }
+  button:hover{ background:#243044; }
+  #saveState{ color:#7dd7a0; } .warn{ color:#e8b04a; }
+  .spR{ color:#9fb0c8; font-weight:400; }
+  /* the settings card: smallest type in the panel, reference material rather
+     than a live readout, and allowed to be clipped rather than push the
+     numbers above it off the screen */
+  .settings{ margin-top:14px; font-size:10px; line-height:1.45; color:#7c8798;
+    letter-spacing:.02em; overflow:hidden; }
+  .settings b{ font-weight:400; letter-spacing:.1em; color:#9fb0c8;
+    display:inline-block; margin-top:5px; }
+  #sp{ margin-top:12px; } .spRow{ display:flex; gap:8px; align-items:center;
+       margin:4px 0; } .sw{ width:14px; height:14px; border-radius:3px;
+       flex:0 0 auto; } .spT{ font-size:13px; } .spN{ color:#8b96a8; font-size:11px; }
+  /* ---- the setup sheet: everything decided before step one ------------- */
+  #setup{ position:fixed; inset:0; background:rgba(6,9,13,.96); z-index:20;
+          overflow:auto; padding:26px 30px; }
+  #setup h2{ font-size:15px; letter-spacing:.14em; margin:0 0 4px; color:#eef4fc; }
+  #setup .sub{ color:#8b96a8; font-size:12px; margin-bottom:18px; }
+  #setup fieldset{ border:1px solid #26324a; border-radius:8px; margin:0 0 16px;
+                   padding:12px 14px; }
+  #setup legend{ color:#9fb0c8; font-size:11px; letter-spacing:.12em;
+                 text-transform:uppercase; padding:0 6px; }
+  #setup table{ border-collapse:collapse; }
+  #setup th{ color:#8b96a8; font-size:11px; font-weight:400; text-align:left;
+             letter-spacing:.08em; padding:2px 8px 6px 0; }
+  #setup td{ padding:2px 8px 2px 0; }
+  #setup input[type=number]{ width:58px; background:#141c28; color:#dfe7f2;
+    border:1px solid #33405a; border-radius:5px; padding:5px 6px; font:inherit; }
+  #setup input[type=text]{ width:90px; background:#141c28; color:#dfe7f2;
+    border:1px solid #33405a; border-radius:5px; padding:5px 6px; font:inherit; }
+  #setup .hint{ color:#6f7d92; font-size:11px; margin-top:10px; max-width:70ch; }
+  /* Each setting is a self-contained chip with its label sitting directly on
+     top of its own input. A header row above a row of boxes left the reader
+     counting columns to work out which caption belonged to which number. */
+  #setup .fields{ display:flex; flex-wrap:wrap; gap:10px; }
+  #setup .field{ display:flex; flex-direction:column; gap:5px;
+    background:#111a26; border:1px solid #22304a; border-radius:7px;
+    padding:8px 11px 9px; }
+  #setup .field label{ color:#9fb0c8; font-size:11px; letter-spacing:.05em;
+    white-space:nowrap; }
+  #setup .field .u{ color:#66748a; font-size:10px; }
+  #setup .field input[type=checkbox]{ width:16px; height:16px; margin:3px 0 0; }
+  #go{ background:#274d33; border-color:#3f7a52; font-size:14px; padding:10px 20px; }
 </style>
-<link rel="stylesheet" href="wall.css">
-<script src="wall.js"></script>
-<script src="ecology_engine.js"></script>
+<script>
+/* CACHE BUSTER - see the same note in ecology.html. This page is opened off
+   OneDrive as a file:// URL, where a plain reload can serve a stale engine
+   after it has changed on disk. */
+(function(){ var v='?v='+Date.now(), d='';
+  document.write('<script src="'+d+'ecology_engine.js'+v+'"><\/script>');
+  document.write('<script src="'+d+'ecology_ui.js'+v+'"><\/script>');
+})();
+</script>
 </head>
 <body>
 <canvas id="cv"></canvas>
-<div id="rail"><div class="foot">
-  <div class="instr mounted">
-    <div class="fine">an agent-based ecology<br>four random founder species per world</div>
-  </div>
-</div></div>
-<div id="band"><canvas id="strip"></canvas><div id="stripcap">community composition</div></div>
-<div id="startGate" hidden><button id="startBtn">start the run</button></div>
-<div id="info"></div>
-<script src="nav.js"></script>
+<canvas id="strip"></canvas>
+<div id="setup">
+  <h2>SELECTION &mdash; RUN SETUP</h2>
+  <div class="sub">Everything here is fixed at step one. Leave it alone for a
+    random world, or compose one deliberately.</div>
+
+  <fieldset><legend>founding species</legend>
+    <table id="spTable">
+      <tr><th>name</th><th>legs</th><th>body</th><th>mouth</th><th>eyes</th>
+          <th>diet</th><th>count</th></tr>
+    </table>
+    <div class="hint">Eight populations &mdash; a grazer and a hunter for each
+      of the four corners, two populations per corner. Traits 0&ndash;10; body
+      and mouth must be at least 1. A hunter needs a mouth wider than its
+      prey's body or it cannot eat at all, and any lineage you want to
+      survive needs a count of at least two. Set a count to 0 to leave that
+      slot empty.</div>
+    <div style="margin-top:8px">
+      <button id="randTraits">randomise traits</button>
+      <button id="clearCarn">all herbivores</button>
+    </div>
+  </fieldset>
+
+  <fieldset><legend>the landscape</legend>
+    <div class="fields">
+      <div class="field"><label for="patchRange">patch size <span class="u">cells</span></label>
+        <input type="number" id="patchRange" value="12" min="1" max="60" step="1"></div>
+      <div class="field"><label for="patchSill">patch contrast <span class="u">0&ndash;1</span></label>
+        <input type="number" id="patchSill" value="1" min="0" max="1" step="0.1"></div>
+      <div class="field"><label for="growLo">growth, poorest <span class="u">per step</span></label>
+        <input type="number" id="growLo" value="0.02" min="0" max="0.5" step="0.01"></div>
+      <div class="field"><label for="growHi">growth, richest <span class="u">per step</span></label>
+        <input type="number" id="growHi" value="0.18" min="0" max="0.5" step="0.01"></div>
+      <div class="field"><label for="grassMax">grass cap <span class="u">units/cell</span></label>
+        <input type="number" id="grassMax" value="50" min="5" max="500" step="5"></div>
+    </div>
+    <div class="hint">Patch size is the correlation length in cells &mdash; small
+      values give fine mottling, large values give broad prairies and barrens.
+      Patch contrast 0 makes the land uniform; 1 uses the full growth range.</div>
+  </fieldset>
+
+  <fieldset><legend>the rules</legend>
+    <div class="fields">
+      <input type="hidden" id="cellCap" value="2">
+      <input type="hidden" id="capPerDiet" value="on" data-cb="1">
+      <input type="hidden" id="sizeMouth" value="0">
+      <input type="hidden" id="eyeCost" value="1">
+      <input type="hidden" id="questLitters" value="0">
+      <input type="hidden" id="carnMateBoost" value="1">
+      <input type="hidden" id="huntCost" value="0">
+      <input type="hidden" id="allometrySpan" value="2">
+      <input type="hidden" id="sizeEyes" value="0">
+      <div class="field"><label for="provLowSteps">f provisioning <span class="u">steps of upkeep</span></label>
+        <input type="number" id="provLowSteps" value="4" min="1" max="12" step="1"></div>
+      <div class="field"><label for="provHighSteps">F provisioning <span class="u">steps of upkeep</span></label>
+        <input type="number" id="provHighSteps" value="10" min="2" max="20" step="1"></div>
+      <div class="field"><label for="disturbEvery">disturbance interval <span class="u">steps, 0 = off</span></label>
+        <input type="number" id="disturbEvery" value="0" min="0" max="20000" step="50"></div>
+      <div class="field"><label for="disturbDiamLo">smallest event <span class="u">cells across</span></label>
+        <input type="number" id="disturbDiamLo" value="6" min="1" max="80" step="1"></div>
+      <div class="field"><label for="disturbDiamHi">largest event <span class="u">cells across</span></label>
+        <input type="number" id="disturbDiamHi" value="60" min="1" max="180" step="1"></div>
+      <div class="field"><label for="disturbKill">fraction of animals killed</label>
+        <input type="number" id="disturbKill" value="0.6" min="0" max="1" step="0.05"></div>
+      <div class="field"><label for="disturbGrass">fraction of grass stripped</label>
+        <input type="number" id="disturbGrass" value="0.6" min="0" max="1" step="0.05"></div>
+    </div>
+    <div class="hint">Provisioning is a species trait: f spends little on each newborn and F spends a lot, and the two do not interbreed. Disturbance hits a random patch on that interval - most events are small, a few are very large. Killing animals but sparing the grass rewards whoever recolonises fastest; stripping the grass too forces the colonists to live on what their parents gave them.</div>
+  </fieldset>
+
+  <fieldset><legend>the run</legend>
+    <div class="fields">
+      <div class="field"><label for="seedIn">seed <span class="u">blank = random</span></label>
+        <input type="text" id="seedIn" placeholder="random"></div>
+      <div class="field"><label for="stopAtIn">stop at step <span class="u">0 = never</span></label>
+        <input type="number" id="stopAtIn" value="0" min="0" step="1000"></div>
+    </div>
+  </fieldset>
+
+  <button id="go">start this world</button>
+</div>
+<div id="side">
+  <h1>SELECTION LAB</h1>
+  <div><button id="startBtn" style="background:#274d33;border-color:#3f7a52">start run</button>
+       <button id="pick">choose data folder</button>
+       <button id="pauseBtn">pause</button></div>
+  <div class="row"><span class="k">stop at step (0 = never)</span><br>
+    <input id="stopAt" type="number" min="0" step="1000" value="0"
+           style="width:110px;background:#1b2432;color:#dfe7f2;border:1px solid #33405a;border-radius:6px;padding:6px;font:inherit"></div>
+  <div class="row"><span class="k">saving</span><br><span class="v" id="saveState">off - no folder chosen</span></div>
+  <div class="row"><span class="k">seed / step</span><br><span class="v" id="stat"></span></div>
+  <div class="row"><span class="k">population</span><br><span class="v" id="pop"></span></div>
+  <div class="row"><span class="k">grass</span><br><span class="v" id="grass"></span></div>
+  <div class="row"><span class="k">pace</span><br><span class="v" id="pace"></span>
+    <div><button data-s="1">1 paced</button><button data-s="2">2 fast</button><button data-s="3">3 max</button></div></div>
+  <div id="sp"></div>
+</div>
 <script>
-const ROTATION = ['index.html'];   // standalone: nowhere else to go
-function rotateTo(step){
-  const here=(location.pathname.split('/').pop()||'kiosk.html');
-  let i=ROTATION.indexOf(here); if(i<0) i=0;
-  location.href=ROTATION[(i+step+ROTATION.length)%ROTATION.length];
-}
+'use strict';
+/* Lab knobs, all in one place. regrowEvery 4 is richer than the wall's 5 -
+   the lab wants evolutionary time more than watchability - and COMP_EVERY 5
+   keeps a 100,000-step run's composition file near 20 MB. */
+const LAB = { regrowEvery:4, maxAnimals:30000, compEvery:5, flushEvery:1000,
+              speeds:{1:'paced', 2:'fast', 3:'max'} };
 
-const CONFIG = {
-  stepMs: 130,            // one simulation step every ~8th of a second; a
-                          // heavy step (tens of thousands of animals) simply
-                          // takes longer and the world slows honestly
-  holdMin: 8,             // minutes on the wall before handing off
-  maxAnimals: 25000,      // page copy of the engine safety valve
-  startGate: true,       // false on the WALL (a kiosk has no mouse): the
-                          // run begins on load. The standalone build flips
-                          // this true, so a visitor - Joe arranging data
-                          // capture above all - can set things up and THEN
-                          // press start; the founders wait visibly.
-  nextPage: '' /* standalone: nowhere to hand on to; start again */,
-};
-const PINNED = /(?:\?|&)pin\b/.test(location.search);
-/* ?steps=N freezes the run at step N for inspection - the standalone and
-   experiment use; 0 (absent) runs forever */
-const STOP_AT = parseInt((location.search.match(/[?&]steps=(\d+)/)||[])[1]||'0',10);
-
-
+/* The page opens ARMED, not running: the founders wait at step zero until
+   the start button, so the data folder can be chosen before step one and
+   the files hold the entire run. After that first start, extinction
+   reseeds keep running unattended. */
+let started=false;
+let world=null, seed=0, paused=false, speed=3, runDone=false;
+/* stop-after: from the box below or ?steps=N in the URL; per run - a new
+   world's counter starts again at zero */
+let stopAt=parseInt((location.search.match(/[?&]steps=(\d+)/)||[])[1]||'0',10);
+let dirHandle=null;
+let speciesEver=[], everIndex=new Map();     // stable column order
+let compRows=[], phyloRows=[], prevAlive=new Set(), lastFlushStep=0;
 
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 const stripCv=document.getElementById('strip'), stx=stripCv.getContext('2d');
-const infoEl=document.getElementById('info');
-/* ONE fraction reserves the rail's width and the band's height; because the
-   two are equal and the viewport is 16:9, the remaining map rectangle keeps
-   the grid's own 16:9 and the cells stay square */
-const INSET=0.16;
-let W=0,H=0,MAPW=0,MAPH=0;
-function resize(){
-  W=cv.width=Math.min(1920,innerWidth); H=cv.height=Math.round(W*9/16);
-  cv.style.height=(innerWidth*9/16)+'px';
-  MAPW=Math.round(W*(1-INSET)); MAPH=Math.round(H*(1-INSET));
-  document.documentElement.style.setProperty('--railW', Math.round(innerWidth*INSET)+'px');
-  document.documentElement.style.setProperty('--bandH', Math.round(innerWidth*9/16*INSET)+'px');
-  const r=stripCv.getBoundingClientRect();
-  stripCv.width=Math.max(2,Math.round(r.width)); stripCv.height=Math.max(2,Math.round(r.height));
+function layout(){
+  const w=innerWidth-340, mapH=Math.round(w*90/160);
+  cv.width=w; cv.height=Math.min(mapH, innerHeight-120);
+  stripCv.width=w; stripCv.height=Math.max(60, innerHeight-cv.height-2);
+  stripCv.style.top=cv.height+'px';
 }
-addEventListener('resize',resize); resize();
+addEventListener('resize',layout); layout();
 
-/* the grass field renders through a 160x90 backing image scaled up with
-   smoothing off - 14,400 crisp cells for the price of one drawImage */
-let world=null, gcv=document.createElement('canvas'), gtx=gcv.getContext('2d'), gimg=null;
-
-/* ---- the community record: who exists, in what numbers, over time -------
-   Every species ever seen gets a stable colour and a stable stacking slot
-   the moment it first appears. The graph stacks RELATIVE abundance
-   (composition), so the strip stays full-height through booms and busts -
-   the population number lives in the panel. FULL HISTORY, always: when the
-   backing image fills, it is squeezed to half width and the sampling
-   interval doubles - a run left up for a week still shows its whole story,
-   left edge = founding, right edge = now. */
-const AREA_W=900, AREA_H=170;
-let SAMPLE_EVERY=2;
-let areaCv=document.createElement('canvas'), atx=areaCv.getContext('2d');
-areaCv.width=AREA_W; areaCv.height=AREA_H;
-let speciesReg=new Map(), areaCol=0, sinceSample=0;
-/* CMYK TRAIT MIXING (Joe's design, 2026-08-28): the colour IS the genome.
-   legs load the cyan channel, body magenta, mouth yellow, eyes black -
-   each trait/10 an ink load, K compressed to 0.55 so an eyes-10 species
-   stays visible on the dark ground. Similar traits therefore mix to
-   similar colours: the strip's colour gradients are trait gradients, and
-   a one-unit mutation is a one-shade shift. A carnivore wears its species
-   colour pulled 55% toward red (plus a red ring on the map) - diet must
-   read at a glance even on a colour-matched trait twin. */
-function cmyk(l,b,m,e,carn){
-  const C=l/10, M=b/10, Y=m/10, K=0.055*e;
+/* colours: the same CMYK genome mixing as the wall page */
+function cmyk(l,b,m,e,carn,bigF){
+  /* K channel carries eyes AND provisioning, half each */
+  const C=l/10, M=b/10, Y=m/10, K=0.0275*e + (bigF?0.275:0);
   let r=255*(1-C)*(1-K), g=255*(1-M)*(1-K), bl=255*(1-Y)*(1-K);
   if(carn){ r=r*0.45+242*0.55; g=g*0.45+56*0.55; bl=bl*0.45+46*0.55; }
   return 'rgb('+Math.round(r)+' '+Math.round(g)+' '+Math.round(bl)+')';
 }
-function regSpecies(key){
-  let r=speciesReg.get(key);
-  if(!r){
-    const carn=key.endsWith('C'), t=key.slice(0,-1).split(',').map(Number);
-    r={ order:speciesReg.size, color:cmyk(t[0],t[1],t[2],t[3],carn) };
-    speciesReg.set(key,r);
-  }
-  return r;
+const colCache=new Map();
+function colOf(key){
+  let c=colCache.get(key);
+  if(!c){ const t=Eco.parseKey(key);
+    c=cmyk(t.legs,t.body,t.mouth,t.eyes,t.carn,t.bigF); colCache.set(key,c); }
+  return c;
 }
-function sampleArea(s){
-  const total=s.animals; if(!total) return;
+/* the key IS the display name now: L6.B6.M4.E1.f.H */
+function label(key){ return String(key); }
+
+
+/* full-history composition strip, compressing 2x when full */
+const AREA_W=1200, AREA_H=160;
+let areaCv=document.createElement('canvas'), atx=areaCv.getContext('2d');
+areaCv.width=AREA_W; areaCv.height=AREA_H;
+let areaCol=0, stripEvery=2, sinceStrip=0;
+function sampleStrip(s){
+  if(!s.animals) return;
   if(areaCol>=AREA_W){
-    /* history compression: squeeze what exists into the left half, sample
-       half as often from here on - the whole run always fits */
-    atx.drawImage(areaCv, 0,0,AREA_W,AREA_H, 0,0,AREA_W/2,AREA_H);
+    atx.drawImage(areaCv,0,0,AREA_W,AREA_H, 0,0,AREA_W/2,AREA_H);
     atx.clearRect(AREA_W/2,0,AREA_W/2,AREA_H);
-    areaCol=AREA_W/2; SAMPLE_EVERY*=2;
+    areaCol=AREA_W/2; stripEvery*=2;
   }
-  const rows=s.list.map(e=>({r:regSpecies(e.key), c:e.count}))
-                   .sort((a,b)=>a.r.order-b.r.order);
   const x=areaCol++;
   let y=AREA_H;
   atx.clearRect(x,0,1,AREA_H);
-  for(const e of rows){
-    const hgt=AREA_H*e.c/total;
-    atx.fillStyle=e.r.color;
-    atx.fillRect(x, y-hgt, 1, hgt);
-    y-=hgt;
+  for(const e of [...s.list].sort((a,b)=>(everIndex.get(a.key)??1e9)-(everIndex.get(b.key)??1e9))){
+    const hgt=AREA_H*e.count/s.animals;
+    atx.fillStyle=colOf(e.key); atx.fillRect(x,y-hgt,1,hgt); y-=hgt;
   }
 }
-let started=false, paused=false, handingOff=false, lastStep=0, stepTook=0, fps=0, lastFrame=performance.now();
-let seed=0, startedAt=0;
-let peakPop=0, told={}, lastLane=0;
+
+/* ---- the two data products --------------------------------------------- */
+function registerSpecies(key){
+  if(!everIndex.has(key)){ everIndex.set(key,speciesEver.length); speciesEver.push(key); }
+}
+function sampleComposition(s){
+  const counts=new Uint16Array(speciesEver.length);
+  for(const e of s.list){ registerSpecies(e.key);
+    if(e.key.length && everIndex.get(e.key)<counts.length) counts[everIndex.get(e.key)]=e.count; }
+  /* a species first seen THIS sample sits past the snapshot's length; the
+     writer pads missing columns with zeros, so re-snapshot at full width */
+  const full=new Uint16Array(speciesEver.length);
+  for(const e of s.list) full[everIndex.get(e.key)]=Math.min(65535,e.count);
+  compRows.push({ step:s.step, pop:s.animals, g:s.grass,
+                  gpc:s.grassPerCell, veg:s.vegetatedPct, counts:full });
+}
+function drainPhylo(s){
+  for(const ev of world.emergences.splice(0)){
+    registerSpecies(ev.child); registerSpecies(ev.parent);
+    const t=Eco.parseKey(ev.child);
+    phyloRows.push([ev.step,'speciation',label(ev.child),t.legs,t.body,t.mouth,
+                    t.eyes,(t.bigF?'F':'f'),
+                    t.carn?'carnivore':'herbivore',label(ev.parent)].join(','));
+  }
+  const alive=new Set(s.list.map(e=>e.key));
+  for(const k of prevAlive) if(!alive.has(k)){
+    const t=Eco.parseKey(k);
+    phyloRows.push([s.step,'extinction',label(k),t.legs,t.body,t.mouth,
+                    t.eyes,(t.bigF?'F':'f'),
+                    t.carn?'carnivore':'herbivore',''].join(','));
+  }
+  prevAlive=alive;
+}
+async function writeFile(name, text){
+  const fh=await dirHandle.getFileHandle(name,{create:true});
+  const w=await fh.createWritable();          // truncates: full rewrite
+  await w.write(text); await w.close();
+}
+let flushing=false;
+async function flush(){
+  if(!dirHandle||flushing) return;
+  flushing=true;
+  try{
+    const head=['step','pop','grass_total','grass_per_cell','vegetated_pct',
+                ...speciesEver.map(label)].join(',');
+    const lines=[head];
+    for(const r of compRows){
+      const cells=new Array(speciesEver.length).fill(0);
+      r.counts.forEach((v,i)=>cells[i]=v);
+      lines.push([r.step,r.pop,r.g,r.gpc,r.veg,...cells].join(','));
+    }
+    await writeFile('selection_'+seed+'_composition.csv', lines.join('\n')+'\n');
+    await writeFile('selection_'+seed+'_phylogeny.csv',
+      'step,event,species,legs,body,mouth,eyes,prov,diet,parent\n'+phyloRows.join('\n')+'\n');
+    document.getElementById('saveState').textContent=
+      'on - flushed t'+world.step+' ('+compRows.length+' rows, '+phyloRows.length+' events)';
+  }catch(e){
+    document.getElementById('saveState').textContent='WRITE FAILED: '+e.message;
+    document.getElementById('saveState').className='warn';
+  }
+  flushing=false;
+}
+
+/* Options composed by the setup sheet. Null until the sheet is submitted,
+   after which every reseed (extinction, or n) reuses the same world recipe
+   with a fresh seed - so a deliberately composed experiment stays composed. */
+let SETUP=null;
 
 function newRun(){
-  seed=Math.floor(Math.random()*1e9);
-  /* regrowEvery 5: the one deliberate departure from the spec's rates. At
-     the spec's 1 the grass income supports 30-50k animals - unwatchable on
-     the wall. 1/5 sprouting lands the equilibrium near 10k with the same
-     boom, bust and recovery (measured in the jsc sweeps). Joe's call to
-     revisit. */
-  world=Eco.newWorld(seed, {maxAnimals:CONFIG.maxAnimals, regrowEvery:5});
-  gcv.width=world.P.W; gcv.height=world.P.H;
-  gimg=gtx.createImageData(world.P.W, world.P.H);
-  peakPop=0; told={}; startedAt=performance.now(); lastLane=0;
-  speciesReg=new Map(); areaCol=0; sinceSample=0; SAMPLE_EVERY=2;
-  atx.clearRect(0,0,AREA_W,AREA_H);
-  Wall.clearEpisode(); Wall.clearTimers();
-  Wall.episode('Grass grows on every square. Four herbivore species wake in the '
-    +'four corners, and mating needs an exact trait match - so every mutation '
-    +'is a small step toward becoming something new.');
-  console.log('[ecology] seed', seed);
+  if(dirHandle && world) flush();             // close out the dying world
+  runDone=false;
+  seed=(SETUP && SETUP.seed!=null) ? SETUP.seed : Math.floor(Math.random()*1e9);
+  if(SETUP) SETUP.seed=null;                  // an explicit seed is used once
+  const opts=Object.assign({maxAnimals:LAB.maxAnimals, regrowEvery:LAB.regrowEvery},
+                           (SETUP&&SETUP.opts)||{});
+  world=Eco.newWorld(seed, opts);
+  speciesEver=[]; everIndex=new Map(); compRows=[]; phyloRows=[];
+  prevAlive=new Set(); lastFlushStep=0;
+  areaCol=0; stripEvery=2; sinceStrip=0; atx.clearRect(0,0,AREA_W,AREA_H);
+  for(const f of world.founders) registerSpecies(f.legs+','+f.body+','+f.mouth+','+f.eyes+'H');
 }
 
-/* ---- the episode: narrate what the model actually does ------------------ */
-function narrate(s){
-  const now=performance.now();
-  if(now-lastLane<9000) return;                       // one thought at a time
-  function say(id,text,hold){ if(told[id]) return false;
-    told[id]=true; Wall.lane(text,{hold:hold||8000}); lastLane=now; return true; }
-
-  if(s.mutants>0 && say('mutant',
-    'The first mutant is born - one trait nudged one unit, or an appetite '
-    +'flipped. Its children will need partners exactly like itself.')) return;
-  if(s.carn>0 && say('carn',
-    'A mutation has flipped an appetite: the first CARNIVORE. It cannot eat '
-    +'grass any more - from here it hunts, or it starves.')) return;
-  if(s.carn>=25 && say('carnHold',
-    'The predators are no accident now: a standing carnivore population, '
-    +'red on the map, culling the herds that made them.')) return;
-  if(s.grass < 43200*0.1 && s.animals>3000 && say('crash',
-    'The commons is nearly bare. Grass regrows one unit at a time, and the '
-    +'herds have outrun it - the bust is arriving.')) return;
-  if(peakPop>4000 && s.animals < peakPop*0.55 && say('bust',
-    'Starvation has halved the population from its peak. What survives is '
-    +'whatever spent its fat most carefully.', 9000)) return;
-  if(s.species>=40 && say('radiate',
-    s.species+' distinct trait-species now share the grid, every one an '
-    +'accumulation of one-unit mutations - reproductive isolation by drift.')) return;
-  if(s.step>600 && Math.abs(s.animals-peakPop)<peakPop*0.1 && s.animals>2000 &&
-     say('steady','The boom and the bust have settled into a working '
-    +'ecosystem: grass, grazers, and their predators, none winning outright.')) return;
+/* ---- stepping: as fast as the setting allows ---------------------------- */
+function runBatch(budgetMs){
+  if(!started||runDone) return;
+  const t0=performance.now();
+  do{
+    if(stopAt && world.step>=stopAt){
+      runDone=true;
+      flush();                      // the run's files close out complete
+      document.getElementById('saveState').textContent=
+        (dirHandle?'complete - files flushed at t':'complete (no folder) at t')+world.step;
+      break;
+    }
+    Eco.step(world);
+    const s=Eco.stats(world);
+    if(world.step%LAB.compEvery===0) sampleComposition(s);
+    drainPhylo(s);
+    if(++sinceStrip>=stripEvery){ sinceStrip=0; sampleStrip(s); }
+    if(world.step-lastFlushStep>=LAB.flushEvery){ lastFlushStep=world.step; flush(); }
+    if(!world.animals.length){ newRun(); break; }
+  }while(performance.now()-t0<budgetMs);
 }
 
-/* ---- drawing ------------------------------------------------------------ */
-function draw(s){
-  const P=world.P, cw=MAPW/P.W, chh=MAPH/P.H;
-  ctx.fillStyle='#04070a'; ctx.fillRect(0,0,W,H);
-  /* grass through the backing image */
-  const d=gimg.data;
+function draw(){
+  const s=Eco.stats(world), P=world.P;
+  const cw=cv.width/P.W, chh=cv.height/P.H;
+  ctx.fillStyle='#06090d'; ctx.fillRect(0,0,cv.width,cv.height);
   for(let i=0;i<world.grass.length;i++){
-    const t=Math.sqrt(Math.min(1, world.grass[i]/P.grassMax));  // low grass stays visible
-    d[i*4  ]=7  + 28*t;
-    d[i*4+1]=13 + 105*t;
-    d[i*4+2]=8  + 34*t;
-    d[i*4+3]=255;
+    /* cheap grass: draw only vegetated cells */
+    const g=world.grass[i]; if(g<1) continue;
+    const t=Math.sqrt(Math.min(1,g/P.grassMax));
+    ctx.fillStyle='rgb('+(7+28*t|0)+' '+(13+105*t|0)+' '+(8+34*t|0)+')';
+    ctx.fillRect((i%P.W)*cw, (i/P.W|0)*chh, cw+0.5, chh+0.5);
   }
-  gtx.putImageData(gimg,0,0);
-  ctx.imageSmoothingEnabled=false;
-  ctx.drawImage(gcv,0,0,MAPW,MAPH);
-
-  /* animals wear their species colour; body size sets the mark. The colour
-     is cached on the animal - traits never change after birth. */
   for(const a of world.animals){
-    if(!a._col) a._col=regSpecies(Eco.key(a)).color;
+    if(!a._col) a._col=colOf(Eco.key(a));
     ctx.fillStyle=a._col;
-    const r = Math.max(2, (0.22+0.05*a.body)*cw);
+    const r=Math.max(2,(0.25+0.05*a.body)*cw);
     ctx.fillRect(a.x*cw+(cw-r)/2, a.y*chh+(chh-r)/2, r, r);
   }
-  /* predators over everything, ringed in red - rare enough to stroke */
-  ctx.strokeStyle='rgba(255,64,44,0.95)'; ctx.lineWidth=Math.max(1,cw*0.14);
+  ctx.strokeStyle='rgba(255,64,44,.95)'; ctx.lineWidth=Math.max(1,cw*0.15);
   for(const a of world.animals){ if(!a.carn) continue;
-    const r = Math.max(3, (0.34+0.05*a.body)*cw);
+    const r=Math.max(3,(0.38+0.05*a.body)*cw);
     ctx.strokeRect(a.x*cw+(cw-r)/2, a.y*chh+(chh-r)/2, r, r);
   }
+  stx.fillStyle='#0A0E15'; stx.fillRect(0,0,stripCv.width,stripCv.height);
+  if(areaCol>1){ stx.imageSmoothingEnabled=false;
+    stx.drawImage(areaCv,0,0,areaCol,AREA_H, 0,0,stripCv.width,stripCv.height); }
+
+  document.getElementById('stat').textContent=seed+' · t'+s.step;
+  document.getElementById('pop').textContent=
+    s.animals.toLocaleString()+' ('+s.species+' species, '+s.carn+' carnivores)';
+  document.getElementById('grass').textContent=s.grassPerCell+'/cell · '+s.vegetatedPct+'% vegetated';
+  document.getElementById('pace').textContent=LAB.speeds[speed]+(paused?' · PAUSED':'');
+  const sp=document.getElementById('sp');
+  /* Same readout as the wall: R is the species' birth rate (births per step
+     as a percentage of its own headcount) and S/B/P splits its recent deaths
+     between starvation, background mortality and predation. Both come from
+     the engine's rolling vital-rate window via the shared EcoUI formatters. */
+  sp.innerHTML='<div class="k">most common species</div>'+s.list.slice(0,10).map(e=>
+    '<div class="spRow"><div class="sw" style="background:'+colOf(e.key)+'"></div>'+
+    '<div><div class="spT">'+label(e.key)+
+    (e.R!==undefined?' <span class="spR">· '+EcoUI.vitalR(e)+'</span>':'')+'</div>'+
+    '<div class="spN">'+e.count.toLocaleString()+
+    (e.medianAge!==undefined?' · '+EcoUI.vitalAge(e):'')+
+    (e.S!==undefined?' · '+EcoUI.vitalDeaths(e):'')+
+    (e.carn&&e.preyTop&&e.preyTop.length?' · eats '+label(e.preyTop[0][0]):'')+
+    '</div></div></div>').join('')
+    + '<div class="settings" id="labSettings"></div>';
+  /* the settings the run was actually given - the setup sheet is gone once a
+     run starts, so the values it was given stay visible here */
+  const ls=document.getElementById('labSettings');
+  if(ls) ls.innerHTML=EcoUI.settingsCard(world, seed);
 }
 
-function drawStrip(){
-  const sw=stripCv.width, sh=stripCv.height;
-  stx.fillStyle='#0A0E15'; stx.fillRect(0,0,sw,sh);
-  if(areaCol<2) return;
-  /* the filled portion IS the whole run - stretch it across the band */
-  stx.imageSmoothingEnabled=false;
-  stx.drawImage(areaCv, 0,0,areaCol,AREA_H, 0,0,sw,sh);
-}
-
-/* ---- the permanent instruments ------------------------------------------ */
-/* the species NAME, everywhere one appears - table, prey lines, and the
-   lab's CSV columns share this exact form (Joe: L3_B1_M4_E1 style) */
-function traitSig(e){ return 'L'+e.legs+'_B'+e.body+'_M'+e.mouth+'_E'+e.eyes; }
-function sigOfKey(k){ const t=k.slice(0,-1).split(',');
-  return 'L'+t[0]+'_B'+t[1]+'_M'+t[2]+'_E'+t[3]; }
-function instrument(s){
-  Wall.instrument({
-    mount:'#rail', cols:1,
-    hero:{ v: s.animals.toLocaleString(), u:'animals' },
-    rows:[
-      { k:'species',   v: String(s.species) },
-      { k:'carnivores',v: String(s.carn) },
-      { k:'grass per cell', v: s.grassPerCell+' · '+s.vegetatedPct+'% veg.' },
-      { k:'step',      v: String(s.step) },
-    ],
-    /* The key to the genome colours: each trait loads one printing ink, so
-       a species' colour IS its trait vector. Eyes get the black channel,
-       shown as the light-to-dark ramp it actually applies. */
-    strips:[{ k:'genome = CMYK ink', items:[
-      { c:'#00b7eb', label:'legs' },
-      { c:'#ec008c', label:'body' },
-      { c:'#fff200', label:'mouth' },
-      { c:'linear-gradient(90deg,#e9edf3,#0d1117)', label:'eyes' },
-    ]}],
-  });
-  /* The species table IS the legend now: each row wears the same swatch its
-     species wears on the map and in the strip. Trait signature on top,
-     count and role beneath it - one visual unit, no ambiguity about which
-     numbers belong to which traits. A carnivore row names its top prey. */
-  /* Top six species overall - plus the top two CARNIVORE species even when
-     they are too rare to crack the top six, because a predator's row is
-     where its diet shows and rare is the predators' natural state. */
-  const shown=s.list.slice(0,6);
-  for(const e of s.list.filter(e=>e.carn && !shown.includes(e)).slice(0,2)) shown.push(e);
-  Wall.instrument({
-    id:'species', mount:'#rail',
-    keys: shown.map(e=>({
-      c: regSpecies(e.key).color,
-      v: traitSig(e)+(e.carn?'  ·  C':''),
-      n: e.count.toLocaleString()+' · '+(e.carn?'carnivore':'herbivore')
-         +(e.carn && e.preyTop && e.preyTop.length
-            ? ' · eats '+sigOfKey(e.preyTop[0][0]) : ''),
-    })),
-    cap:'MOST COMMON SPECIES',
-  });
-}
-
-function handOff(){
-  if(handingOff) return; handingOff=true;
-  Wall.clearEpisode(); Wall.clearTimers();
-  document.body.style.transition='opacity 1400ms ease-in-out';
-  document.body.style.opacity='0';
-  setTimeout(()=>{ if(CONFIG.nextPage) location.href=CONFIG.nextPage;
-                   else location.reload(); },1500);
-}
-
+let lastDraw=0;
 function frame(now){
   requestAnimationFrame(frame);
-  const dtms=Math.max(0,now-lastFrame); lastFrame=now;
-  fps=fps?fps*0.9+(1000/Math.max(dtms,1))*0.1:60;
-  if(paused||handingOff) return;
-
-  let stepped=false;
-  if(!started){ /* armed: draw the waiting founders, step nothing */ }
-  else if(STOP_AT && world.step>=STOP_AT){
-    if(!told.runDone){ told.runDone=true;
-      Wall.lane('Run complete: frozen at step '+STOP_AT+' for inspection. '
-        +'Press n for a fresh world.',{hold:12000}); }
-  }
-  else if(now-lastStep>=CONFIG.stepMs){
-    const t0=performance.now();
-    Eco.step(world);
-    stepTook=performance.now()-t0;
-    lastStep=now; stepped=true;
-  }
-  const s=Eco.stats(world);
-  if(stepped && ++sinceSample>=SAMPLE_EVERY){ sinceSample=0; sampleArea(s); }
-  drawStrip();
-  peakPop=Math.max(peakPop,s.animals);
-  draw(s); instrument(s); narrate(s);
-
-  if(s.animals===0){
-    if(!told.extinct){ told.extinct=true;
-      Wall.lane('Every animal has starved or been eaten. The grass will have '
-        +'the world to itself - until the next seeding.',{hold:9000});
-      Wall.after(11000, newRun);
-    }
-  }
-  if(!PINNED && CONFIG.nextPage && now-startedAt>CONFIG.holdMin*60000) handOff();
-  if(document.body.classList.contains('showinfo')) updateInfo();
+  if(paused) return;
+  runBatch(speed===1?0:speed===2?45:140);     // budget 0 = exactly one step
+  if(now-lastDraw>400){ lastDraw=now; draw(); }
 }
+/* hidden-tab catch-up: rAF freezes when the window is hidden; a 1 s timer
+   keeps the run limping (browsers throttle this too - visible is faster) */
+setInterval(()=>{ if(!paused && document.hidden) runBatch(600); },1000);
 
-function updateInfo(){
-  const s=Eco.stats(world);
-  infoEl.textContent=
-`seed      ${seed}   step ${s.step}   ${stepTook.toFixed(0)} ms/step   fps ${fps.toFixed(0)}
-pop       ${s.animals} (H${s.herb}/C${s.carn})  species ${s.species}  peak ${peakPop}
-grass     ${s.grass}   fat~${s.fatMean}
-top       ${s.topSpecies.map(e=>e[0]+'x'+e[1]).join('  ')}
-params    reserve ${world.P.reproReserveSteps} steps · danger ${world.P.dangerWeight} · bravery floor ${world.P.braveryFloor} · mate ${world.P.mateWeight}
-keys: n new world · p pause · i info`;
-}
-
-addEventListener('keydown',(e)=>{
-  switch(e.key){
-    case 'i': case 'I': document.body.classList.toggle('showinfo'); updateInfo(); break;
-    case 'n': case 'N': newRun(); break;
-    case 'p': case 'P': case ' ': paused=!paused; break;
-    case 'ArrowRight': rotateTo(1); break;
-    case 'ArrowLeft':  rotateTo(-1); break;
+document.getElementById('pick').onclick=async()=>{
+  try{
+    dirHandle=await showDirectoryPicker({mode:'readwrite'});
+    document.getElementById('saveState').textContent='on - folder chosen, first flush at t'+(lastFlushStep+LAB.flushEvery);
+    document.getElementById('saveState').className='';
+  }catch(e){
+    if(!window.showDirectoryPicker)
+      document.getElementById('saveState').textContent='this browser lacks the folder API - use Chrome';
   }
+};
+document.getElementById('startBtn').onclick=()=>{
+  started=true;
+  document.getElementById('startBtn').style.display='none';
+  document.getElementById('saveState').textContent=
+    dirHandle? 'on - recording from step 0' : 'off - running without a folder';
+};
+document.getElementById('pauseBtn').onclick=()=>{ paused=!paused; draw(); };
+for(const b of document.querySelectorAll('[data-s]'))
+  b.onclick=()=>{ speed=+b.dataset.s; };
+const stopBox=document.getElementById('stopAt');
+stopBox.value=stopAt;
+stopBox.onchange=()=>{ stopAt=Math.max(0,parseInt(stopBox.value||'0',10)); runDone=false; };
+addEventListener('keydown',e=>{
+  if(e.key==='p'||e.key===' ') paused=!paused;
+  if(e.key==='s') document.getElementById('startBtn').onclick();
+  if(e.key==='n'){ newRun(); }
+  if('123'.includes(e.key)) speed=+e.key;
 });
 
+/* ---- the setup sheet ---------------------------------------------------- */
+/* Eight founding populations: a grazer and a hunter for each corner, the
+   hunter's mouth wide enough for its neighbour grazer's body. */
+const SP_DEFAULT=[
+  {name:'grazer1', legs:2, body:1, mouth:4, eyes:2, carn:false, count:20},
+  {name:'hunter1', legs:3, body:2, mouth:3, eyes:3, carn:true,  count:10},
+  {name:'grazer2', legs:1, body:2, mouth:3, eyes:1, carn:false, count:20},
+  {name:'hunter2', legs:2, body:2, mouth:4, eyes:2, carn:true,  count:10},
+  {name:'grazer3', legs:3, body:1, mouth:3, eyes:3, carn:false, count:20},
+  {name:'hunter3', legs:4, body:3, mouth:3, eyes:4, carn:true,  count:10},
+  {name:'grazer4', legs:2, body:2, mouth:5, eyes:2, carn:false, count:20},
+  {name:'hunter4', legs:2, body:1, mouth:4, eyes:2, carn:true,  count:10},
+];
+const NSP=SP_DEFAULT.length;
+function buildSpeciesRows(rows){
+  const t=document.getElementById('spTable');
+  while(t.rows.length>1) t.deleteRow(1);
+  rows.forEach((s,i)=>{
+    const r=t.insertRow();
+    r.innerHTML =
+      '<td><input type="text" id="n'+i+'" value="'+s.name+'" style="width:70px"></td>'+
+      ['legs','body','mouth','eyes'].map(k=>
+        '<td><input type="number" id="'+k+i+'" value="'+s[k]+'" min="0" max="10" step="1"></td>').join('')+
+      '<td><select id="d'+i+'" style="background:#141c28;color:#dfe7f2;border:1px solid #33405a;border-radius:5px;padding:5px">'+
+        '<option value="H"'+(s.carn?'':' selected')+'>herbivore</option>'+
+        '<option value="C"'+(s.carn?' selected':'')+'>carnivore</option></select></td>'+
+      '<td><input type="number" id="c'+i+'" value="'+s.count+'" min="0" max="200" step="1"></td>';
+  });
+}
+buildSpeciesRows(SP_DEFAULT);
+const num=id=>parseFloat(document.getElementById(id).value);
+document.getElementById('randTraits').onclick=()=>{
+  /* Draw the way the engine does: grazer first, then a hunter whose mouth
+     clears that grazer's body, so every corner starts viable. COUNTS are
+     drawn too (Joe, 2026-08-28) - founding numbers matter as much as
+     traits, since a predator lineage that starts thin has to clear its own
+     Allee threshold before it can grow. Herbivores 5-40, hunters 2-20;
+     the spread is deliberately wide so a batch of hand-started worlds
+     explores founder density rather than repeating one recipe. */
+  const rows=[];
+  const d=()=>1+Math.floor(Math.random()*6);
+  const ri=(lo,hi)=>lo+Math.floor(Math.random()*(hi-lo+1));
+  /* Draw legal builds directly, so the sheet shows what will actually run.
+     The engine legalises anything it is handed anyway, but a setup screen
+     that displays one animal and starts a different one is a liar. Raises
+     the smallest of legs/body/mouth, matching the engine's rule. */
+  /* read defensively - the randomiser can fire before the sheet is complete */
+  const span=()=>{ const el=document.getElementById('allometrySpan');
+    const v=el?parseFloat(el.value):NaN; return isNaN(v)?2:v; };
+  const legal=(o)=>{ const S=span();
+    if(S>0) for(let g=0;g<24;g++){
+      const hi=Math.max(o.legs,o.body,o.mouth), lo=Math.min(o.legs,o.body,o.mouth);
+      if(hi-lo<=S) break;
+      if(o.legs===lo && o.legs<10) o.legs++;
+      else if(o.body===lo && o.body<10) o.body++;
+      else if(o.mouth===lo && o.mouth<10) o.mouth++;
+      else break;
+    }
+    return o; };
+  for(let c=0;c<NSP/2;c++){
+    const g=legal({ name:'grazer'+(c+1), legs:d(), body:d(), mouth:d(), eyes:d(),
+              carn:false, count:ri(5,40) });
+    rows.push(g, legal({ name:'hunter'+(c+1), legs:d(), body:d(),
+      mouth:Math.min(10, g.body+1+Math.floor(Math.random()*4)), eyes:d(),
+      carn:true, count:ri(2,20) }));
+  }
+  buildSpeciesRows(rows);
+  randomiseLandscape();          // the ground varies too, not just the animals
+};
+
+/* Fill the landscape and rules boxes from the same draw the wall uses, so a
+   OneDrive run explores different ground rather than repeating one recipe.
+   (Joe, 2026-08-29: "randomize the landscape variables and not just the
+   founder variables".) */
+function randomiseLandscape(){
+  const L=EcoUI.randomLandscape();
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.value=v; };
+  set('patchRange',L.patchRange); set('patchSill',L.patchSill);
+  set('growLo',L.growLo);         set('growHi',L.growHi);
+  set('grassMax',L.grassMax);
+  set('provLowSteps',L.provLowSteps); set('provHighSteps',L.provHighSteps);
+  set('disturbEvery',L.disturbEvery); set('disturbDiamLo',L.disturbDiamLo);
+  set('disturbDiamHi',L.disturbDiamHi); set('disturbKill',L.disturbKill);
+  set('disturbGrass',L.disturbGrass);
+}
+randomiseLandscape();            // and on first open, too
+document.getElementById('clearCarn').onclick=()=>{
+  for(let i=0;i<NSP;i++) document.getElementById('d'+i).value='H';
+};
+document.getElementById('go').onclick=()=>{
+  const founders=[];
+  for(let i=0;i<NSP;i++){
+    const cnt=num('c'+i);
+    if(!(cnt>0)) continue;                    // count 0 leaves that slot empty
+    founders.push({ name:document.getElementById('n'+i).value||('sp'+i),
+      legs:num('legs'+i), body:Math.max(1,num('body'+i)),
+      mouth:Math.max(1,num('mouth'+i)), eyes:num('eyes'+i),
+      carn:document.getElementById('d'+i).value==='C', count:cnt });
+  }
+  const seedTxt=document.getElementById('seedIn').value.trim();
+  SETUP={ seed: seedTxt===''? null : (parseInt(seedTxt,10)|0),
+    opts:{ founders:founders.length?founders:null,
+      patchRange:num('patchRange'), patchSill:num('patchSill'),
+      growLo:num('growLo'), growHi:num('growHi'), grassMax:num('grassMax'),
+      cellCap:num('cellCap'),
+      capPerDiet:(document.getElementById('capPerDiet').value === 'on'),
+      sizeMouth:num('sizeMouth'), eyeCost:num('eyeCost'),
+      questLitters:num('questLitters'), carnMateBoost:num('carnMateBoost'),
+      huntCost:num('huntCost'), allometrySpan:num('allometrySpan'),
+      sizeEyes:num('sizeEyes'),
+      provLowSteps:num('provLowSteps'), provHighSteps:num('provHighSteps'),
+      disturbEvery:num('disturbEvery'), disturbDiamLo:num('disturbDiamLo'),
+      disturbDiamHi:num('disturbDiamHi'), disturbKill:num('disturbKill'),
+      disturbGrass:num('disturbGrass') } };
+  stopAt=Math.max(0, num('stopAtIn')|0);
+  document.getElementById('stopAt').value=stopAt;
+  document.getElementById('setup').style.display='none';
+  newRun();                                   // rebuild with the chosen recipe
+  started=true;
+  document.getElementById('startBtn').style.display='none';
+  document.getElementById('saveState').textContent=
+    dirHandle? 'on - recording from step 0' : 'off - running without a folder';
+};
+
 newRun();
-if(CONFIG.startGate){
-  document.getElementById('startGate').hidden=false;
-  document.getElementById('startBtn').onclick=()=>{
-    started=true; startedAt=performance.now();
-    document.getElementById('startGate').hidden=true;
-  };
-} else started=true;
 requestAnimationFrame(frame);
 </script>
 </body>

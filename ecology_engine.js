@@ -163,7 +163,185 @@ const DEFAULTS = {
                           // win pixels at no cost (measured: E 1 -> 3.6).
                           // Real retinas are expensive; so are these.
   starveBelow: 1,
-  babyFat: 2,             // DECISION: newborn's starting fat
+  /* STOCHASTIC MORTALITY (Joe, 2026-08-28). Nothing in the model aged an
+     animal out: a fed animal could only die of starvation or a predator, so
+     a well-fed founder survived whole runs and - worse - any animal whose
+     intake exactly cancelled its upkeep became immortal, permanently hungry
+     and permanently sterile (the metabolic-stasis attractor). A flat hazard
+     gives every animal a finite expected life of 1/mortality steps
+     regardless of how comfortable it is. 0.002 = a mean life of 500 steps. */
+  mortality: 0.002,
+  /* A newborn used to receive a flat babyFat=2 whatever its body plan. For
+     anything above L3/B3/E3 that was less than ONE step of its own upkeep,
+     so large offspring were born already dead - an unintended selection
+     gradient against big bodies (audit, 2026-08-28). The endowment is now
+     the LARGER of babyFat, a survival floor, and its strategy's allowance
+     metabolism, and the parents are charged for what they actually give. */
+  /* ---- r/K PROVISIONING (Joe, 2026-08-29) --------------------------------
+     A fifth species-identifying trait, binary: 'f' spends little on each
+     newborn, 'F' spends a lot. It replaces the single babyUpkeepSteps dial
+     with a strategy the population can evolve, and it is BINARY on purpose -
+     a 1..10 version would multiply genotype space tenfold and strand every
+     mutant reproductively, worsening the Allee bottleneck it is meant to
+     relieve, and would only be bimodal if bimodality happened to emerge.
+     Kept inside species identity (unlike, say, eyes and allometry) because
+     the cost and the benefit must stay in the same animal: with mixed pairs
+     the endowment would follow one parent while both paid, so the expense of
+     F would be socialised across partners while the benefit was inherited
+     privately - the same shape of bug that let eyes ride on sizeEyes. */
+  /* ---- DISTURBANCE (Joe, 2026-08-29) -------------------------------------
+     A patch of the world is hit: some of its animals die and some of its
+     standing crop is destroyed. The REGIME is a property of a world (drawn
+     once per run), while each EVENT draws its own size from that regime - so
+     a world has a character, "frequent small fires" or "rare catastrophic
+     resets", which is the thing worth correlating outcomes against.
+
+     ANIMAL KILL AND GRASS REMOVAL ARE SEPARATE AXES, deliberately. They pull
+     f and F in OPPOSITE directions: clearing animals but leaving the grass
+     opens ground with food already standing, which rewards whoever colonises
+     fastest (cheap offspring, f); clearing the grass as well forces colonists
+     to survive the regrowth gap on their endowment (F). One combined
+     magnitude can only ever push one way at a time, so a single world could
+     not contain both forces - and both is what a maintained polymorphism
+     needs. Set disturbCoupled true to tie them together and get the
+     single-axis behaviour back for comparison.
+
+     Two things are deliberately NOT disturbed. The quality field (the soil)
+     survives, so recolonisation follows the landscape's existing structure
+     rather than starting blank. And the kill is uniformly at random rather
+     than size-selective: density-independent mortality is the classic
+     condition favouring r-strategists, and biasing it by body size would
+     confound the very mechanism this is here to create. */
+  disturbEvery: 0,        // 0 = never. Expected steps between events
+  /* SIZE IS A DIAMETER, in cells - what you would measure across the scar on
+     the map. It was a radius until 2026-08-29, which made "10 to 100" mean
+     patches up to 200 cells across on a 160x90 world, i.e. larger than the
+     world (Joe caught this). Drawn LOG-uniformly, so most events are small
+     and a few are very large. */
+  disturbDiamLo: 6,
+  disturbDiamHi: 60,
+  disturbKill: 0.6,       // fraction of animals inside the patch that die
+  disturbGrass: 0.6,      // fraction of the standing crop removed
+  disturbCoupled: false,  // true = grass removal follows the kill fraction
+
+  provLowSteps: 4,        // 'f' - steps of its own upkeep a cheap newborn gets
+  provHighSteps: 10,      // 'F' - and a well-provisioned one
+  /* 4 and 10 chosen by sweep (3 seeds x 3000 steps, F's share of the whole
+     population): 2/10 -> 95% F, 3/10 -> 78%, 4/10 -> 51%, 5/10 -> 24%,
+     4/8 -> 9%. Below 4 the cheap strategy sits barely above the survival
+     floor and is not an alternative but a death sentence, so F sweeps. At
+     4/10 both persist in BOTH guilds (herbivores 1558 f / 1621 F, carnivores
+     14 f / 19 F). Read that honestly though: the balance tips hard between
+     4 and 5, so this is a tuned fitness TIE, not frequency-dependent
+     coexistence - nothing yet makes the rare strategy advantageous. A
+     disturbance regime is what would make it robust, by letting f win the
+     recolonisation race while F holds the crowded interior. */
+  /* 3 -> 7 (Joe, 2026-08-29), for uniformity as much as for survival. At 3 the
+     babyFat floor of 2 propped up small newborns to 5-6.7 steps of their own
+     upkeep while anything with basal above ~7 got exactly 3 - so provisioning
+     was quietly biased AGAINST large-bodied and carnivorous offspring, which
+     is the class that kept failing. A diet-flip carnivore was born with three
+     steps of fuel and needs two of them just to reach prey (hunting only
+     fires from the prey's own cell), so most died mid-approach having never
+     attacked - measured: median life 1 step, and 69 steps when given more fat,
+     while raising the catch chance from 0.10 to 0.81 changed nothing.
+     At 7 the scaled term clears the floor for every body plan, so every
+     newborn gets the same seven steps whatever it is. Parents pay for it:
+     perParent is (build + endow)/2, so the breeding threshold rises with it
+     and the mass balance still closes. */
+  /* GAPE RULE (Joe, 2026-08-29). Predation needs the hunter's mouth to admit
+     the prey's body. With the strict form (mouth > body) and both traits
+     capped at 10, a body-10 herbivore is uneatable by ANY animal the model
+     can build - an absolute refuge handed over by the trait ceiling, not
+     earned. Five of ten 500k-step runs escaped into it and ran every trait
+     to the ceiling. gapeStrict:false relaxes the test to mouth >= body, so
+     the largest predator can still take the largest prey. */
+  gapeStrict: true,
+  /* PER-SPECIES VITAL RATES (Joe, 2026-08-29). The wall shows a birth rate R
+     and the share of deaths owed to starvation / background / predation for
+     each common species. Cumulative totals would be dominated by ancient
+     history, so events are counted into a rolling window: vitalCur fills for
+     vitalWindow steps, is then frozen as vitalPrev and reported, and a fresh
+     window starts. Counting is event-driven (a birth, a death) so it costs
+     nothing on the hot path. */
+  vitalWindow: 250,
+
+  /* ---- THREE DESIGN SWITCHES, all default-OFF so the shipped model is
+     unchanged until an A/B says otherwise (2026-08-29). ---------------- */
+
+  /* sizeEyes: how much an eye counts toward winning a territorial contest.
+     1 is the historical behaviour. The audit measured that the FORAGING
+     value of eyes saturates at radius 2 (fat gained by eyes 0/1/2/3/5/10 =
+     491/2869/3316/3382/3336/3364), yet eyes still evolve to 10 - because
+     sizeOf counts them, so they buy ground. Eyes are the least plausible
+     thing to win a shoving match with; at 0 they must pay for themselves
+     through perception alone. */
+  sizeEyes: 0,        // SHIPPED 2026-08-29 - see the A/B note below
+
+  /* cellMass: a cell's carrying capacity measured in BODY MASS rather than
+     headcount. 0 keeps the headcount rule (cellCap animals per guild). Set
+     above 0 and a cell instead holds animals until their combined sizeOf
+     would exceed this, always admitting at least one - so two small animals
+     share a pixel where one giant fills it alone. This makes large size cost
+     TERRITORY, which is the real ecological brake on body size and is what
+     the headcount rule removes: today an L10 giant occupies exactly as much
+     ground as an L1 minimal. 8 matches the old capacity for small animals
+     (an L2 B1 E1 grazer is sizeOf 4, so two still fit). */
+  cellMass: 0,
+
+  /* allometrySpan: the largest gap allowed between the biggest and smallest
+     of legs, body and mouth (Joe, 2026-08-29 - "this predator with a huge
+     mouth and tiny everything seems biologically implausible"). 0 disables
+     it. At 2, L1 B1 M6 is illegal and a big mouth has to be carried by a
+     body and legs within two units of it. Eyes are deliberately exempt:
+     being blind or sharp-eyed is independent of build. Enforced on mutation
+     and on random founders, so no illegal animal ever exists. */
+  allometrySpan: 2,   // SHIPPED 2026-08-29 - see the A/B note below
+
+  /* huntCost: what a FAILED hunt costs the attacker, per unit of the prey's
+     defensive mass (legs + body). 0 is the historical free-attack model.
+     Joe's rationale (2026-08-29): "predator vs predator contests should be
+     rarer because the two can inflict damage on each other" - and more
+     generally, an attack that costs nothing makes every animal under your
+     gape worth trying, which collapses the food web into "eat anything
+     smaller". With a cost, expected value is
+         catchProb x efficiency x meal  -  (1 - catchProb) x huntCost x (L+B)
+     so each predator acquires an OPTIMAL PREY SIZE - big enough to be worth
+     the meal, small enough to be safe - which is the trade-off that lets
+     hunters specialise instead of all converging on one strategy.
+     Default 0 pending its own A/B; adjustable on the lab's setup sheet. */
+  huntCost: 0,
+
+  /* ---- WHAT THE A/B ACTUALLY MEASURED (6 arms x 6 paired seeds x 20,000
+     steps, 160x90, regrowEvery 4). Medians at step 20,000:
+
+       arm          bodySlope   pop   species  carnivores  illegal builds
+       baseline      -0.028    3938     23         38          32%
+       noEyeSize     -0.020    3970     23         35          93%
+       allometry     +0.093    4026     27         27           0%
+       allom_noEye   -0.018    5206     20        232           0%
+
+     The pair we shipped (allometrySpan 2 + sizeEyes 0) wins on carnivore
+     persistence by SIX TIMES (232 against 38), carries a third more animals,
+     and makes an allometrically absurd body plan impossible by construction.
+     It costs a little diversity (20 species against 23).
+
+     ALLOMETRY ALONE IS WORSE THAN DOING NOTHING: body climbed in 4 of 6
+     seeds against 2 of 6 for baseline. Constraining legs/body/mouth without
+     also removing eyes from the territory contest just moves the pressure
+     into eyes (4.49, the highest of any arm). The two changes are only
+     useful together - do not ship one without the other.
+
+     Honest limits: median body slope is NOT better than baseline (-0.018 vs
+     -0.028), and one seed of six (66606) still ran away to L8.99 B7.01 M8.99.
+     This suppresses the runaway in most worlds; it does not abolish it. ---- */
+  /* Lowered from 2 (2026-08-29). At 2 the floor dominated every small body
+     plan, so f and F newborns received identical fat and the strategy was
+     selectively invisible in exactly the small-bodied majority. What now
+     guarantees a newborn survives its own birth step is the SURVIVAL floor
+     in babyEndow - starveBelow plus one step of upkeep - which scales with
+     the animal instead of being a constant. */
+  babyFat: 0.5,             // DECISION: newborn's starting fat
   initFat: 8,             // founders arrive fed but not rich
   /* Founding NUMBERS are drawn per species, not fixed (Joe, 2026-08-28):
      founder density turned out to matter as much as founder traits - in the
@@ -248,6 +426,24 @@ const DEFAULTS = {
    for the only prey in reach is dead on arrival, and a founder should at
    least be viable. Duplicate trait vectors re-roll so every population
    starts reproductively distinct. */
+/* Pull a drawn build into the allometric window. RAISES the smallest trait
+   rather than cutting the largest, because a hunter's mouth is drawn to clear
+   its neighbour grazer's body and shrinking it would strand the predator with
+   jaws too small for the only prey in reach. Bounded, so it always terminates
+   - a re-roll loop could not, since a mouth of 10 can never be matched by a
+   legs/body drawn from 1..6. */
+function legalise(P, sp){
+  if(!P.allometrySpan) return sp;
+  for(let g=0; g<24; g++){
+    const hi=Math.max(sp.legs,sp.body,sp.mouth), lo=Math.min(sp.legs,sp.body,sp.mouth);
+    if(hi-lo<=P.allometrySpan) break;
+    if(sp.legs===lo && sp.legs<10) sp.legs++;
+    else if(sp.body===lo && sp.body<10) sp.body++;
+    else if(sp.mouth===lo && sp.mouth<10) sp.mouth++;
+    else break;                                  // already at the ceiling
+  }
+  return sp;
+}
 function randomFounders(rnd, P){
   const out=[], seen=new Set();
   const draw=()=>1+Math.floor(rnd()*6);
@@ -255,23 +451,39 @@ function randomFounders(rnd, P){
   for(let c=0;c<4;c++){
     let herb;
     do { herb={ name:'grazer'+(c+1), legs:draw(), body:draw(),
-                mouth:draw(), eyes:draw(), carn:false,
+                mouth:draw(), eyes:draw(), bigF:rnd()<0.5, carn:false,
                 count:cnt(P.herbCountLo, P.herbCountHi) };
-    } while(seen.has(herb.legs+','+herb.body+','+herb.mouth+','+herb.eyes));
-    seen.add(herb.legs+','+herb.body+','+herb.mouth+','+herb.eyes);
+      legalise(P, herb);
+    } while(seen.has(key(herb)));
+    seen.add(key(herb));
     let carn;
     do { carn={ name:'hunter'+(c+1), legs:draw(), body:draw(),
                 mouth:Math.min(10, herb.body+1+Math.floor(rnd()*4)),
-                eyes:draw(), carn:true,
+                eyes:draw(), bigF:rnd()<0.5, carn:true,
                 count:cnt(P.carnCountLo, P.carnCountHi) };
-    } while(seen.has(carn.legs+','+carn.body+','+carn.mouth+','+carn.eyes));
-    seen.add(carn.legs+','+carn.body+','+carn.mouth+','+carn.eyes);
+      legalise(P, carn);
+    } while(seen.has(key(carn)));
+    seen.add(key(carn));
     out.push(herb, carn);
   }
   return out;
 }
 
-function key(a){ return a.legs+','+a.body+','+a.mouth+','+a.eyes+(a.carn?'C':'H'); }
+/* SPECIES KEY, e.g. "L6.B6.M4.E1.f.H" (2026-08-29). Dots rather than commas:
+   the old comma form shredded every CSV it was written into, and dots read
+   like an address at a glance. Order is the four morphological traits, the
+   provisioning strategy, then the diet. */
+function key(a){
+  return 'L'+a.legs+'.B'+a.body+'.M'+a.mouth+'.E'+a.eyes+
+         '.'+(a.bigF?'F':'f')+'.'+(a.carn?'C':'H');
+}
+/* The inverse, exported so no page or script has to know the format. */
+function parseKey(k){
+  const p=String(k).split('.');
+  return { legs:+p[0].slice(1), body:+p[1].slice(1),
+           mouth:+p[2].slice(1), eyes:+p[3].slice(1),
+           bigF:p[4]==='F', carn:p[5]==='C' };
+}
 
 /* ---- the growth-quality field -------------------------------------------
    White noise smoothed by repeated box blurs. Three passes of a box kernel
@@ -322,6 +534,21 @@ function newWorld(seed, opts){
   const w = { P, rnd, grass, quality, animals:[], step:0, nextId:1,
               births:0, starved:0, eaten:0, mutants:0,
               carnFlips:0, carnBorn:0, carnStarved:0, carnAgeSum:0, evictions:0,
+              diedOfAge:0, aliveCount:0, huntsFailed:0,
+              disturbances:0, disturbKilled:0, lastDisturb:null,
+              vitalCur:new Map(), vitalPrev:new Map(), vitalSteps:0,
+              /* MASS BALANCE (Joe, 2026-08-28). Every mutation of an
+                 animal's fat is booked here so the identity
+                   dFat = grazed + predGain - burned - buildLost
+                          - starvedFat - preyFatLost
+                 can be checked exactly. Grass is the ONLY external input:
+                 grazed is drawn from the grass array, everything else is a
+                 transfer between animals or a sink. If the identity closes,
+                 "predation creates fat" is the intended conversion of
+                 structural tissue into store, not a computational leak. */
+              ledger:{ grassBurned:0,
+           grazed:0, predGain:0, preyFatLost:0, burned:0,
+                       buildLost:0, babyGot:0, starvedFat:0, grassGrown:0 },
               explain:false,       // when true, every decision is recorded
               whys:[],             // this step's decision records
               preyLog:new Map(),   // predator species -> prey species -> kills
@@ -337,7 +564,13 @@ function newWorld(seed, opts){
   /* An explicit list is honoured even when EMPTY - that is how the
      microscope asks for a bare world it will populate by hand. Only null
      or undefined means "draw me some". */
-  w.founders = P.founders ? P.founders : randomFounders(rnd, P);
+  /* Founders supplied by hand (the lab's setup sheet, a batch script) are
+     legalised too, not just the ones drawn here - otherwise a run could start
+     with animals its own mutation rule forbids, and the settings card would
+     advertise builds that the engine would never let breed. legalise() edits
+     in place, so w.founders and the card agree with what actually exists. */
+  w.founders = P.founders ? P.founders.map(sp=>legalise(P, Object.assign({}, sp)))
+                          : randomFounders(rnd, P);
   /* Founders scatter within an 18x18 patch in a corner; with eight
      populations the corners take two apiece, so each hunter starts in the
      same country as a grazer it can actually eat. */
@@ -352,18 +585,32 @@ function newWorld(seed, opts){
                : (sp.carn ? P.carnPerSpecies : P.herbPerSpecies);
     for(let k=0;k<many;k++){
       /* founders respect the cap too - retry a few times for an open cell */
-      let px=0, py=0;
-      for(let tries=0; tries<40; tries++){
-        px=cx+Math.floor(rnd()*patch); py=cy+Math.floor(rnd()*patch);
-        let n=0; for(const b of w.animals) if(b.x===px&&b.y===py) n++;
-        if(n<P.cellCap) break;
+      /* The old retry counted BOTH guilds against cellCap and, after 40
+         misses, placed the founder on top of a full cell anyway (audit,
+         2026-08-28). Count only the founder's own guild when capPerDiet is
+         on, and widen the patch rather than overfill. */
+      let px=0, py=0, placed=false;
+      for(let tries=0; tries<200 && !placed; tries++){
+        const grow = patch + Math.floor(tries/40);      // widen if crowded
+        px=Math.max(0,Math.min(P.W-1, cx+Math.floor(rnd()*grow)));
+        py=Math.max(0,Math.min(P.H-1, cy+Math.floor(rnd()*grow)));
+        let n=0;
+        for(const b of w.animals){
+          if(b.x!==px||b.y!==py) continue;
+          if(P.capPerDiet && b.carn!==!!sp.carn) continue;
+          n++;
+        }
+        if(n<P.cellCap) placed=true;
       }
+      if(!placed){ w.founderSkipped=(w.founderSkipped||0)+1; continue; }
       w.animals.push({ id:w.nextId++, x:px, y:py,
         legs:sp.legs, body:sp.body, mouth:sp.mouth, eyes:sp.eyes,
+        bigF:!!sp.bigF,
         fat:P.initFat, carn:!!sp.carn, age:0, moved:0,
         founder:sp.name||('corner'+(i+1)) });
     }
   });
+  w.aliveCount=w.animals.length;   // mate()'s population guard reads this
   return w;
 }
 
@@ -383,6 +630,31 @@ function buildIndex(w){
   return idx;
 }
 function dist(ax,ay,bx,by){ const dx=ax-bx, dy=ay-by; return Math.sqrt(dx*dx+dy*dy); }
+
+/* ---- (1 + distance) LOOKUP TABLE ----------------------------------------
+   Profiling (2026-08-29) put the cost of a step in the movement-scoring
+   loop, not in perception: for every candidate cell within `legs` the animal
+   divides by (1 + distance) to every grass spot, prey, kin and predator it
+   can see. At legs 10 that is ~440 candidates x ~10 targets = ~4,400 square
+   roots per animal per step.
+
+   Candidates lie within legs<=10 of the animal and targets within eyes<=10,
+   so the separation is at most 20 on each axis and the whole table is 41x41
+   doubles. It stores 1+d rather than 1/(1+d) DELIBERATELY: keeping the
+   division in the caller makes the arithmetic bit-identical to the old
+   dist() path, where multiplying by a stored reciprocal would not be.
+   Float64Array, not Float32Array, for the same reason. */
+const DR=20, DW=2*DR+1;
+const DP1=new Float64Array(DW*DW);
+for(let dy=-DR;dy<=DR;dy++) for(let dx=-DR;dx<=DR;dx++)
+  DP1[(dy+DR)*DW+(dx+DR)] = 1+Math.sqrt(dx*dx+dy*dy);
+/* 1 + dist(ax,ay,bx,by), from the table when in range and the long way when
+   not (a caller outside +-20 would otherwise read the wrong cell) */
+function dp1(ax,ay,bx,by){
+  const dx=ax-bx, dy=ay-by;
+  if(dx<-DR||dx>DR||dy<-DR||dy>DR) return 1+Math.sqrt(dx*dx+dy*dy);
+  return DP1[(dy+DR)*DW+(dx+DR)];
+}
 
 /* Per-radius offset tables, built once: perception visits only cells truly
    inside the circle, with their distances precomputed - the scan is the
@@ -408,6 +680,10 @@ for(let R=0;R<=10;R++){
    eviction) and is a plausible part of why legs kept collapsing to 1-2.
    Nearest-first ordering means cheap moves are considered before expensive
    ones, so ties resolve toward staying close. */
+/* Scratch for the candidate list - sized for the largest legs radius the
+   trait ceiling allows, and grown defensively if that ever changes. */
+let CAND_X=new Int16Array(1024), CAND_Y=new Int16Array(1024),
+    CAND_D=new Float64Array(1024);
 const MOVE_OFFS=[];
 for(let R=0;R<=10;R++){
   const list=[];
@@ -448,10 +724,10 @@ function perceive(w, a, idx){
     }
     const cell=idx[y*P.W+x]; if(!cell) continue;
     for(const b of cell){ if(b===a||b.dead) continue;
-      if(a.carn && a.mouth>b.body) out.prey.push({b,x,y,d});
-      if(b.carn && b.mouth>a.body) out.predators.push({b,x,y,d});
+      if(a.carn && (P.gapeStrict ? a.mouth>b.body : a.mouth>=b.body)) out.prey.push({b,x,y,d});
+      if(b.carn && (P.gapeStrict ? b.mouth>a.body : b.mouth>=a.body)) out.predators.push({b,x,y,d});
       if(b.legs===a.legs && b.body===a.body && b.mouth===a.mouth && b.eyes===a.eyes
-         && (!P.dietAssort || b.carn===a.carn)){
+         && b.bigF===a.bigF && (!P.dietAssort || b.carn===a.carn)){
         /* kin are worth walking toward even when neither side is ready yet -
            losing sight of your own species is how a corner population goes
            reproductively extinct at fixed count (measured: three of four
@@ -477,34 +753,78 @@ function basal(a, P){ return Math.max(1, a.legs+a.body+(P?P.eyeCost:1)*a.eyes); 
 
 /* what territory contests are settled on: metabolically-paid tissue, plus
    mouth at whatever weight the world gives it (default 0) */
-function sizeOf(a,P){ return a.legs+a.body+a.eyes+(P?P.sizeMouth:0)*a.mouth; }
+function sizeOf(a,P){
+  return a.legs + a.body
+       + (P ? P.sizeEyes : 1)*a.eyes
+       + (P ? P.sizeMouth : 0)*a.mouth;
+}
+/* Is this build allowed? legs/body/mouth must lie within allometrySpan of one
+   another; eyes are exempt. Always true when the rule is off. */
+function allometric(P, legs, body, mouth){
+  if(!P.allometrySpan) return true;
+  const hi=Math.max(legs,body,mouth), lo=Math.min(legs,body,mouth);
+  return (hi-lo)<=P.allometrySpan;
+}
 
 /* Can `a` occupy (x,y)? Returns null if not, otherwise the animal that must
    be evicted first (or undefined when there is simply room). The index is
    kept live through the step, so this sees moves already made this turn. */
+/* ONE reused verdict object (2026-08-29). entryFor is called once per
+   candidate cell per animal per step - ~440 times for a legs-10 animal - and
+   used to allocate a fresh {evict} for every one of them, which dwarfed every
+   other allocation in the engine. The result is consumed immediately by every
+   caller and never held across another entryFor call (the candidate loop
+   discards it; the execute path reads .evict before calling freeCellNear or
+   relocate, neither of which touches entryFor), so a single shared object is
+   safe. Capture .evict into a local if you ever need it to outlive the call. */
+const ENTRY={ evict:null };
+/* Does a cell have room for an animal of this guild and size? Under the
+   headcount rule that is "fewer than cellCap live same-guild occupants";
+   under the mass rule it is "their combined sizeOf plus mine fits the
+   budget", with an empty cell always admitting one so a giant is never
+   homeless. `excl` skips an occupant (the mover itself). */
+function cellHasRoom(w, cell, carn, size, excl){
+  const P=w.P;
+  if(!cell) return true;
+  let n=0, m=0;
+  for(const b of cell){
+    if(b.dead || b===excl) continue;
+    if(P.capPerDiet && b.carn!==carn) continue;
+    n++; if(P.cellMass>0) m+=sizeOf(b,P);
+  }
+  if(P.cellMass>0) return n===0 || (m+size)<=P.cellMass;
+  return n<P.cellCap;
+}
 function entryFor(w, idx, a, x, y){
   const cell=idx[y*w.P.W+x];
-  if(!cell) return { evict:null };
+  if(!cell){ ENTRY.evict=null; return ENTRY; }
   /* Count only the LIVING (an animal eaten earlier this step has left a
      vacancy) and, when capPerDiet is on, only one's own trophic guild -
      grazers contest ground with grazers, hunters with hunters. */
   const perDiet=w.P.capPerDiet;
-  let live=0, weakest=null;
+  let weakest=null;
   for(const b of cell){
-    if(b===a) return { evict:null };                 // already standing here
+    if(b===a){ ENTRY.evict=null; return ENTRY; }     // already standing here
     if(b.dead) continue;
     if(perDiet && b.carn!==a.carn) continue;
-    live++;
     if(!weakest || sizeOf(b,w.P)<sizeOf(weakest,w.P)) weakest=b;
   }
-  if(live<w.P.cellCap) return { evict:null };
-  return (weakest && sizeOf(a,w.P)>sizeOf(weakest,w.P)) ? { evict:weakest } : null;
+  if(cellHasRoom(w,cell,a.carn,sizeOf(a,w.P),a)){ ENTRY.evict=null; return ENTRY; }
+  if(weakest && sizeOf(a,w.P)>sizeOf(weakest,w.P)){ ENTRY.evict=weakest; return ENTRY; }
+  return null;
 }
 
 /* Move an animal between cells, keeping the live index correct. */
 function relocate(w, idx, a, nx, ny){
   const from=idx[a.y*w.P.W+a.x];
   if(from){ const i=from.indexOf(a); if(i>=0) from.splice(i,1); }
+  /* EVERY relocation is charged, including one an animal did not choose.
+     Eviction used to set x/y directly and never touch a.moved, so 13% of
+     all travel in the model was free - and it was the ONLY way a legs-0
+     animal ever changed position, quietly bussing the sessile body plan
+     around the map (audit, 2026-08-28). a.moved now accumulates and is
+     zeroed by the metabolism loop after it has been paid for. */
+  a.moved += Math.hypot(nx-a.x, ny-a.y);
   a.x=nx; a.y=ny;
   const k=ny*w.P.W+nx;
   if(idx[k]) idx[k].push(a); else idx[k]=[a];
@@ -512,23 +832,60 @@ function relocate(w, idx, a, nx, ny){
 
 /* Somewhere with room within `rad` of (x,y), nearest rings first - used for
    evicted animals and for newborns when the parents' cell is full. */
-function freeCellNear(w, idx, x, y, rad, carn){
-  const perDiet=w.P.capPerDiet;
-  for(let r=1;r<=rad;r++){
-    for(let dy=-r;dy<=r;dy++) for(let dx=-r;dx<=r;dx++){
-      if(Math.max(Math.abs(dx),Math.abs(dy))!==r) continue;
-      const nx=x+dx, ny=y+dy;
-      if(nx<0||ny<0||nx>=w.P.W||ny>=w.P.H) continue;
-      const c=idx[ny*w.P.W+nx];
-      if(!c) return {x:nx,y:ny};
-      let live=0;
-      for(const b of c){ if(b.dead) continue;
-        if(perDiet && b.carn!==carn) continue; live++; }
-      if(live<w.P.cellCap) return {x:nx,y:ny};
-    }
+function freeCellNear(w, idx, x, y, rad, carn, size){
+  size = size||0;
+  /* EUCLIDEAN DISC, nearest first (fixed 2026-08-29). This walked square
+     Chebyshev rings while movement uses a strict Euclidean disc, so a
+     newborn could be seated on a cell its mother could never have stepped
+     to - measured at 25.8% of all births on the default grid, and 65.6% of
+     births from legs-1 mothers. MOVE_OFFS is exactly the right structure:
+     every offset within the radius, already sorted nearest-first, and it
+     excludes (0,0) because the caller has already tried home. */
+  const R=Math.max(0, Math.min(MOVE_OFFS.length-1, rad|0));
+  const offs=MOVE_OFFS[R];
+  for(let i=0;i<offs.length;i++){
+    const nx=x+offs[i].dx, ny=y+offs[i].dy;
+    if(nx<0||ny<0||nx>=w.P.W||ny>=w.P.H) continue;
+    if(cellHasRoom(w,idx[ny*w.P.W+nx],carn,size,null)) return {x:nx,y:ny};
   }
   return null;
 }
+/* Book one vital event against a species in the open window. */
+function vital(w, k, field){
+  let v=w.vitalCur.get(k);
+  if(!v){ v={births:0, starved:0, background:0, eaten:0}; w.vitalCur.set(k,v); }
+  v[field]++;
+}
+
+/* Contact-range mate search: same traits, same diet (when dietAssort),
+   ready, not yet acted. Independent of eyes - this is touch, not sight. */
+function touchMates(w, a, idx){
+  const P=w.P, out=[];
+  for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+    const x=a.x+dx, y=a.y+dy;
+    if(x<0||y<0||x>=P.W||y>=P.H) continue;
+    const cell=idx[y*P.W+x]; if(!cell) continue;
+    for(const b of cell){
+      if(b===a||b.dead||b.acted) continue;
+      if(b.legs!==a.legs||b.body!==a.body||b.mouth!==a.mouth||b.eyes!==a.eyes) continue;
+      if(b.bigF!==a.bigF) continue;
+      if(P.dietAssort && b.carn!==a.carn) continue;
+      if(reproReady(w,b)>0) out.push({b,x,y,d:Math.hypot(dx,dy)});
+    }
+  }
+  return out;
+}
+/* Where would a newborn of guild `carn` go? Own cell if it has room, else
+   the nearest vacancy within the mother's leg reach. null = cannot breed. */
+function babySlot(w, idx, mom, carn){
+  const P=w.P;
+  const home=idx[mom.y*P.W+mom.x];
+  /* the newborn inherits the mother's build, so its footprint is hers */
+  const size=sizeOf(mom,P);
+  if(cellHasRoom(w,home,carn,size,null)) return {x:mom.x,y:mom.y};
+  return freeCellNear(w,idx,mom.x,mom.y,mom.legs,carn,size);
+}
+
 /* Trophic conversion: what fraction of a kill becomes predator fat.
    Linear in the predator's sensory-locomotor investment (Joe's rule):
    eyes+legs = 0 -> 0.9, eyes+legs = 20 -> 0.1. */
@@ -564,7 +921,19 @@ function hunger(w,a){
    half-share + reserve. (An earlier form re-applied the whole readiness
    threshold after payment; every animal sat ready and adjacent and no pair
    could ever afford baby one - measured, four species, 2,000 frozen steps.) */
-function litterShare(w,a){ return (a.legs+a.body+a.mouth+w.P.babyFat)/2; }
+function babyEndow(w,a){
+  const P=w.P, up=P.bodyCostPer*basal(a,P);
+  const steps = a.bigF ? P.provHighSteps : P.provLowSteps;
+  /* three floors: the nominal babyFat, the SURVIVAL floor, and the strategy's
+     own allowance. The survival floor is starveBelow + TWO steps of upkeep,
+     not one: at one step the newborn lands exactly on starveBelow, where
+     floating-point cancellation put 2 of 30 body plans a hair below it and
+     killed them on their birth step (measured). Two steps also means a
+     newborn always gets to act at least once before it can starve, which is
+     the honest meaning of "born alive". */
+  return Math.max(P.babyFat, P.starveBelow + 2*up, steps*up);
+}
+function litterShare(w,a){ return (a.legs+a.body+a.mouth+babyEndow(w,a))/2; }
 function reserveFloor(w,a){
   return w.P.starveBelow + w.P.reproReserveSteps*w.P.bodyCostPer*basal(a,w.P);
 }
@@ -602,7 +971,7 @@ function reproReady(w,a){
 function fearAt(w, a, px, py, predators, h){
   if(!predators.length) return 0;
   let f=0;
-  for(const p of predators) f += 1/(1+dist(px,py,p.b.x,p.b.y));
+  for(const p of predators) f += 1/dp1(px,py,p.b.x,p.b.y);
   const brave = w.P.braveryFloor + (1-w.P.braveryFloor)*(1-h);
   /* concealment scales the threat: the same predator two cells away is
      background noise from tall grass and a death sentence on bare dirt -
@@ -679,17 +1048,28 @@ function act(w, a, idx){
      at full and half stride. Integer cells, deduplicated. */
   /* every cell within reach, plus standing still; offsets are unique so no
      dedup is needed. A full cell it cannot out-size is not offered at all. */
-  const cands=[{x:a.x,y:a.y,d:0}];
+  /* Candidate cells live in three reused typed arrays rather than a fresh
+     array of {x,y,d} objects per animal per step - at legs 10 that was ~315
+     short-lived objects per animal, every step. CAND_* are module-level and
+     only ever grow. */
+  let nc=0;
+  CAND_X[0]=a.x; CAND_Y[0]=a.y; CAND_D[0]=0; nc=1;
   if(a.legs>0){
     for(const o of MOVE_OFFS[a.legs]){
       const nx=a.x+o.dx, ny=a.y+o.dy;
       if(nx<0||ny<0||nx>=P.W||ny>=P.H) continue;
-      if(entryFor(w,idx,a,nx,ny)) cands.push({x:nx,y:ny,d:o.d});
+      if(entryFor(w,idx,a,nx,ny)){
+        CAND_X[nc]=nx; CAND_Y[nc]=ny; CAND_D[nc]=o.d; nc++;
+      }
     }
   }
 
   /* immediate actions on the current cell */
   let best={ kind:'stay', score:-1e9 };
+  /* The best thing this animal could do WITHOUT moving. Tracked alongside
+     `best` so that a winning stand-still can be collapsed onto a real action
+     instead of wasting the turn - see the note at the collapse below. */
+  let bestAct=null;
   if(!a.carn){
     const g=w.grass[a.y*P.W+a.x];
     const gain=Math.min(a.mouth,g);
@@ -701,7 +1081,9 @@ function act(w, a, idx){
       const s = drive*gain - fr;
       note('graze', s, {intake:+gain.toFixed(2), drive:+drive.toFixed(3),
                         fear:+fr.toFixed(3)});
-      if(s>best.score) best={kind:'graze', score:s, gain};
+      const o={kind:'graze', score:s, gain};
+      if(!bestAct || s>bestAct.score) bestAct=o;
+      if(s>best.score) best=o;
     }
   } else {
     const here=see.prey.filter(p=>p.d===0 && !p.b.dead);
@@ -709,15 +1091,30 @@ function act(w, a, idx){
       const tgt=here[0];
       const cp=catchProb(w,tgt.b), ce=convEff(a), pv=preyValue(tgt.b);
       const fr=fearAt(w,a,a.x,a.y,see.predators,h);
-      const s=drive*cp*ce*pv - fr;
+      /* the attacker prices the risk it is taking: what a miss would cost,
+         weighted by how likely a miss is */
+      const risk=P.huntCost*(1-cp)*(tgt.b.legs+tgt.b.body);
+      const s=drive*cp*ce*pv - risk - fr;
       note('hunt', s, {prey:key(tgt.b), catchP:+cp.toFixed(3),
                        efficiency:+ce.toFixed(3), meal:+pv.toFixed(2),
+                       risk:+risk.toFixed(3),
                        drive:+drive.toFixed(3), fear:+fr.toFixed(3)});
-      if(s>best.score) best={kind:'hunt', score:s, target:tgt.b};
+      const o={kind:'hunt', score:s, target:tgt.b};
+      if(!bestAct || s>bestAct.score) bestAct=o;
+      if(s>best.score) best=o;
     }
   }
   if(r>0){
-    const near=see.mates.filter(m=>m.d<=1.5 && !m.b.acted && !m.b.dead);
+    let near=see.mates.filter(m=>m.d<=1.5 && !m.b.acted && !m.b.dead);
+    /* Perception radius is EYES, so mates were only ever found within
+       min(eyes,1.5): a blind animal could not breed with the one standing
+       on its own square (audit, 2026-08-28). Mating is a contact act - if
+       sight found nobody, feel around the 3x3 neighbourhood directly. */
+    if(!near.length) near=touchMates(w,a,idx);
+    /* A mate action that cannot place a baby burns BOTH parents' turns and
+       returns nothing - a permanent livelock for a sessile pair on a full
+       cell. Only offer mating when a slot actually exists. */
+    if(near.length && !babySlot(w,idx,a,a.carn)) near=[];
     if(near.length){
       /* mating outranks a meal whenever both are possible and the animal is
          ready - the mateWeight scale (risk parameter 3) is what let it walk
@@ -726,15 +1123,18 @@ function act(w, a, idx){
       const s = P.mateWeight*(1+r)*2 - fr;
       note('mate', s, {partner:near[0].b.id, ready:+r.toFixed(3),
                        fear:+fr.toFixed(3)});
-      if(s>best.score) best={kind:'mate', score:s, partner:near[0].b};
+      const o={kind:'mate', score:s, partner:near[0].b};
+      if(!bestAct || s>bestAct.score) bestAct=o;
+      if(s>best.score) best=o;
     }
   }
 
   /* movement options */
-  for(const c of cands){
+  for(let ci=0; ci<nc; ci++){
+    const cX=CAND_X[ci], cY=CAND_Y[ci], cD=CAND_D[ci];
     let v=0;
-    if(!a.carn){ for(const g of see.grassSpots) v=Math.max(v,drive*g.v/(1+dist(c.x,c.y,g.x,g.y))); }
-    else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b)*convEff(a)*preyValue(p.b)/(1+dist(c.x,c.y,p.x,p.y))); }
+    if(!a.carn){ for(const g of see.grassSpots) v=Math.max(v,drive*g.v/dp1(cX,cY,g.x,g.y)); }
+    else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b)*convEff(a)*preyValue(p.b)/dp1(cX,cY,p.x,p.y)); }
     let mv=0;
     const mw=P.mateWeight*(questing?P.questBoost:1);
     /* LOCAL attraction stays gated on actual readiness r. Driving it with
@@ -746,32 +1146,60 @@ function act(w, a, idx){
        The urge earns its keep in the SEARCH rule below instead, where it
        moves lonely animals that can see no kin at all - which is the case
        a rare lineage is actually in. */
-    if(r>0) for(const m of see.kin) mv=Math.max(mv, mw*r/(1+dist(c.x,c.y,m.x,m.y)));
+    if(r>0) for(const m of see.kin) mv=Math.max(mv, mw*r/dp1(cX,cY,m.x,m.y));
     /* nothing of its own kind in view: travel the chosen bearing, and
        prefer a long stride along it to a short one */
-    if(questing && !see.kin.length && a.legs>0 && c.d>0){
-      const dx=c.x-a.x, dy=c.y-a.y, len=Math.hypot(dx,dy);
+    if(questing && !see.kin.length && a.legs>0 && cD>0){
+      const dx=cX-a.x, dy=cY-a.y, len=Math.hypot(dx,dy);
       const dot=(dx*Math.cos(a.qdir)+dy*Math.sin(a.qdir))/len;
       if(dot>0) mv=Math.max(mv, P.questDrive*dot*(len/Math.max(1,a.legs)));
     }
-    const fr=fearAt(w,a,c.x,c.y,see.predators,h);
-    const s = v + mv - fr - P.moveCostPer*c.d;
+    const fr=fearAt(w,a,cX,cY,see.predators,h);
+    const s = v + mv - fr - P.moveCostPer*cD;
     /* the zero-distance candidate is standing still, not moving */
-    if(why) note(c.d===0 ? 'stay' : ('move '+c.x+','+c.y), s,
+    if(why) note(cD===0 ? 'stay' : ('move '+cX+','+cY), s,
       {food:+v.toFixed(3), mate:+mv.toFixed(3), fear:+fr.toFixed(3),
-       travel:+(P.moveCostPer*c.d).toFixed(3), dist:+c.d.toFixed(2)});
-    if(s>best.score) best={kind:'move', score:s, to:c};
+       travel:+(P.moveCostPer*cD).toFixed(3), dist:+cD.toFixed(2)});
+    if(s>best.score) best={kind:'move', score:s, toi:ci};
   }
 
   /* An animal whose needs cannot be answered by anything in sight WANDERS
      instead of standing still: hungry with no grass in view, or ready to
      breed with no kin in view. Without this, an isolated animal is a
      statue, and reunion of a scattered species is impossible. */
-  if(best.score<=1e-6 && a.legs>0 && cands.length>1 &&
+  /* THE WANDER GATE used to open only at an absolute zero score (1e-6). A
+     hungry animal standing on a sub-unit crumb of grass scores a positive but
+     useless graze (~0.05), so the gate stayed shut and it starved in place
+     without taking a single step - measured: a solo L2 B1 M6 E0 at the wall's
+     regrowEvery 5 travels 0 cells and dies at step 56, 12 seeds of 12. The
+     gate now opens whenever the best thing in reach is not worth one step of
+     the animal's own metabolism, which is the honest bar for "nothing here". */
+  const idleFloor = P.bodyCostPer*basal(a,P);
+  if(best.score<=idleFloor && a.legs>0 && nc>1 &&
      ( (drive>0.2 && (a.carn? !see.prey.length : !see.grassSpots.length)) ||
        (mateUrge(w,a,h)>0.35 && !see.kin.length) )){
-    best={kind:'move', score:0, to:cands[1+Math.floor(w.rnd()*(cands.length-1))]};
+    /* same single rnd() draw over the same range as before, so the random
+       walk consumes the stream identically */
+    best={kind:'move', score:0, toi:1+Math.floor(w.rnd()*(nc-1))};
   }
+
+  /* A WINNING ZERO-DISTANCE CANDIDATE means "this is the best cell to stand
+     on". It does NOT mean "do nothing" - but that is what it used to mean,
+     because the executor's guard is a positive travel distance, so a winning
+     stay fell through every branch and the animal ate nothing, moved nowhere
+     and mated with no one. It is structural, not occasional: the perception
+     offsets include (0,0), so the animal's own cell enters see.grassSpots at
+     distance 0 carrying exactly the graze gain, which makes stay >= graze by
+     construction. Grazing survived only on an exact tie broken by evaluation
+     order (measured: 99.85% of 151,332 grazes were exact ties), and any kin
+     credit or better-looking off-cell grass tipped it into idling - 29.9% of
+     ALL decisions were animals refusing a positive meal underfoot, a third of
+     those while more than half-starved.
+     Collapse a winning stay onto the best action actually available here, and
+     when there genuinely is none, call it 'stay' so the microscope can say so
+     (the old code reported these as 'move', making 'stay' unreachable). */
+  if(best.kind==='move' && CAND_D[best.toi]===0)
+    best = bestAct || { kind:'stay', score:best.score };
 
   if(why){
     /* keep the field of options readable: the winner plus the nine next
@@ -782,16 +1210,32 @@ function act(w, a, idx){
     a._why=why; w.whys.push(why);
   }
 
-  /* ---- execute ---- */
-  a.moved=0;
+  /* ---- execute ----
+     a.moved is NOT reset here: it is accumulated by relocate() (including
+     evictions this animal did not choose) and cleared by the metabolism
+     loop once charged. Resetting it here also meant a mating partner was
+     billed again for last step's movement. */
   if(best.kind==='graze'){
     const i=a.y*P.W+a.x;
     w.grass[i]=Math.max(0,w.grass[i]-best.gain);
     a.fat+=best.gain;
+    w.ledger.grazed+=best.gain;
   } else if(best.kind==='hunt'){
-    if(w.rnd()<catchProb(w,best.target)){
+    if(w.rnd()>=catchProb(w,best.target)){
+      /* THE HUNT FAILED. The prey fought back or got away, and the attacker
+         pays for it in proportion to what it took on. Booked to the ledger as
+         burned fat so the mass balance still closes. */
+      if(P.huntCost>0){
+        const hurt=Math.min(a.fat, P.huntCost*(best.target.legs+best.target.body));
+        a.fat-=hurt; w.ledger.burned+=hurt; w.huntsFailed++;
+      }
+    } else {
       best.target.dead='eaten'; w.eaten++;
-      a.fat+=convEff(a)*preyValue(best.target);
+      vital(w, key(best.target), 'eaten');
+      const gain=convEff(a)*preyValue(best.target);
+      a.fat+=gain;
+      w.ledger.predGain+=gain;                  // structure + store, x efficiency
+      w.ledger.preyFatLost+=best.target.fat;    // the store the prey carried
       /* the diet ledger: what does each carnivore species actually eat */
       const pk=key(a), qk=key(best.target);
       let m=w.preyLog.get(pk); if(!m){ m=new Map(); w.preyLog.set(pk,m); }
@@ -799,20 +1243,21 @@ function act(w, a, idx){
     }
   } else if(best.kind==='mate'){
     mate(w, a, best.partner, idx);
-  } else if(best.kind==='move' && best.to.d>0){
-    const e=entryFor(w,idx,a,best.to.x,best.to.y);
+  } else if(best.kind==='move' && CAND_D[best.toi]>0){
+    const tx=CAND_X[best.toi], ty=CAND_Y[best.toi];
+    const e=entryFor(w,idx,a,tx,ty);
     if(e){
-      if(e.evict){
+      const ev=e.evict;            // ENTRY is reused; hold what we need
+      if(ev){
         /* take the pixel: the smaller resident is pushed to the nearest
            cell with room. If the map around it is full the contest simply
            fails and the challenger stays put - no animal is deleted by a
            territorial loss. */
-        const spot=freeCellNear(w,idx,best.to.x,best.to.y,3,e.evict.carn);
-        if(spot){ relocate(w,idx,e.evict,spot.x,spot.y); w.evictions++; }
+        const spot=freeCellNear(w,idx,tx,ty,3,ev.carn,sizeOf(ev,P));
+        if(spot){ relocate(w,idx,ev,spot.x,spot.y); w.evictions++; }
         else { a.acted=true; return; }
       }
-      relocate(w,idx,a,best.to.x,best.to.y);
-      a.moved=best.to.d;
+      relocate(w,idx,a,tx,ty);                 // relocate() bills the distance
     }
   }
   a.acted=true;
@@ -822,19 +1267,49 @@ function act(w, a, idx){
    parents stay above their own reserve threshold. */
 function mate(w, mom, dad, idx){
   const P=w.P;
-  dad.acted=true;
   const build=mom.legs+mom.body+mom.mouth;                 // equal traits: same cost
-  const perParent=(build+P.babyFat)/2;
+  /* NOTE: computed from the mother, and correct because identity guarantees
+     both parents share her strategy - a baby that flips f/F by mutation is
+     provisioned at its parents' rate, which is what a real parent could
+     actually decide. */
+  const endow=babyEndow(w,mom);          // what the newborn actually receives
+  const perParent=(build+endow)/2;
   let made=0;
   /* per baby: the spec gate (fat above build cost) AND the reserve floor
      (survive reproReserveSteps after paying) must hold for both parents */
   while(mom.fat>build && dad.fat>build &&
         mom.fat-perParent>=reserveFloor(w,mom) &&
         dad.fat-perParent>=reserveFloor(w,dad) &&
-        w.animals.length+madeQueue.length<P.maxAnimals){
-    /* Parents share a diet, so the offspring's guild is known before it
-       exists - which is what the per-diet slot search needs. */
-    const baby0carn = mom.carn;
+        w.aliveCount+madeQueue.length<P.maxAnimals){
+    /* MUTATION IS ROLLED FIRST. The diet-flip mutation used to fire AFTER
+       the slot had been chosen for the mother's guild, so a herbivore pair
+       could seat a carnivore newborn in a cell whose carnivore quota was
+       already full (audit, 2026-08-28). Traits are settled here, then the
+       slot is found for the guild the baby will actually have. */
+    const bt={ legs:mom.legs, body:mom.body, mouth:mom.mouth, eyes:mom.eyes,
+               bigF:mom.bigF, carn:(w.rnd()<0.5?mom:dad).carn };
+    let mutated=false;
+    if(w.rnd()<P.mutationP){
+      mutated=true; w.mutants++;
+      /* six slots now: four morphological traits, the diet flip, and the
+         provisioning flip. Each trait's share of mutations therefore falls
+         from a fifth to a sixth. */
+      const pick=Math.floor(w.rnd()*6);
+      if(pick===5){ bt.bigF=!bt.bigF; }
+      else if(pick===4){ bt.carn=!bt.carn; if(bt.carn) w.carnFlips++; }
+      else{
+        const t=['legs','body','mouth','eyes'][pick];
+        const lo=(t==='body'||t==='mouth')?1:0;    // the trait floors
+        const nv=Math.max(lo,Math.min(10,bt[t]+(w.rnd()<0.5?-1:1)));
+        /* An allometrically impossible build is simply not born: the roll is
+           still consumed (so the RNG stream does not depend on the rule) but
+           the trait keeps its parent value. */
+        const cand={legs:bt.legs, body:bt.body, mouth:bt.mouth};
+        cand[t]=nv;
+        if(t==='eyes' || allometric(P,cand.legs,cand.body,cand.mouth)) bt[t]=nv;
+      }
+    }
+    const baby0carn = bt.carn;
     /* The newborn needs a slot: the parents' own cell if it has room,
        otherwise a free cell within the MOTHER'S LEG REACH (Joe,
        2026-08-28) - dispersal distance is inherited machinery, so a
@@ -842,28 +1317,18 @@ function mate(w, mom, dad, idx){
        long-legged one can seed a neighbourhood. A pair holding a full
        pixel with no reachable vacancy simply cannot place the offspring,
        so territory limits reproduction directly. */
-    let spot = null;
-    const home=idx[mom.y*P.W+mom.x];
-    let liveHome=0;
-    if(home) for(const b of home){ if(b.dead) continue;
-      if(P.capPerDiet && b.carn!==baby0carn) continue; liveHome++; }
-    if(liveHome<P.cellCap) spot={x:mom.x,y:mom.y};
-    else spot=freeCellNear(w,idx,mom.x,mom.y,mom.legs,baby0carn);
+    const spot = babySlot(w,idx,mom,baby0carn);
     if(!spot) break;
     mom.fat-=perParent; dad.fat-=perParent;
+    /* parents pay 2*perParent; the newborn receives only babyFat, so the
+       build cost (legs+body+mouth) leaves the world entirely */
+    w.ledger.buildLost += 2*perParent - endow;
+    w.ledger.babyGot   += endow;
     const baby={ id:w.nextId++, x:spot.x, y:spot.y,
-      legs:mom.legs, body:mom.body, mouth:mom.mouth, eyes:mom.eyes,
-      fat:P.babyFat, carn:(w.rnd()<0.5?mom:dad).carn, age:0, moved:0,
+      legs:bt.legs, body:bt.body, mouth:bt.mouth, eyes:bt.eyes,
+      bigF:bt.bigF, fat:endow, carn:bt.carn, age:0, moved:0, sinceMate:0,
       founder:mom.founder };
-    if(w.rnd()<P.mutationP){
-      w.mutants++;
-      const pick=Math.floor(w.rnd()*5);
-      if(pick===4){ baby.carn=!baby.carn; if(baby.carn) w.carnFlips++; }
-      else{
-        const t=['legs','body','mouth','eyes'][pick];
-        const lo=(t==='body'||t==='mouth')?1:0;    // the trait floors
-        baby[t]=Math.max(lo,Math.min(10,baby[t]+(w.rnd()<0.5?-1:1)));
-      }
+    if(mutated){
       const ck=key(baby);
       if(ck!==key(mom)){
         w.emergences.push({step:w.step, child:ck, parent:key(mom)});
@@ -874,26 +1339,76 @@ function mate(w, mom, dad, idx){
     if(idx[bk]) idx[bk].push(baby); else idx[bk]=[baby];
     mom.sinceMate=0; dad.sinceMate=0;
     madeQueue.push(baby); made++; w.births++; if(baby.carn) w.carnBorn++;
+    vital(w, key(baby), 'births');
     if(made>=6) break;   // engine guard: one pair, one step, six births max
   }
+  /* only spend the partner's turn if the pairing actually produced young */
+  if(made>0) dad.acted=true;
 }
 let madeQueue=[];
+
+/* Hit a patch of the world. Returns the event, or null if none fired. */
+function disturb(w){
+  const P=w.P;
+  if(!P.disturbEvery || w.rnd() >= 1/P.disturbEvery) return null;
+  /* log-uniform radius: many small events, a few very large ones, which is
+     the shape real disturbance regimes have and which stops an independent
+     size draw from producing "huge AND frequent" and sterilising the map */
+  const lo=Math.max(1,P.disturbDiamLo), hi=Math.max(lo,P.disturbDiamHi);
+  const D=lo*Math.pow(hi/lo, w.rnd());
+  const R=Math.max(1, Math.round(D/2));        // interior maths works in radii
+  const cx=Math.floor(w.rnd()*P.W), cy=Math.floor(w.rnd()*P.H);
+  const killF=P.disturbKill;
+  const grassF=P.disturbCoupled ? killF : P.disturbGrass;
+  let killed=0, burned=0;
+  const R2=R*R;
+  for(let y=Math.max(0,cy-R); y<=Math.min(P.H-1,cy+R); y++){
+    for(let x=Math.max(0,cx-R); x<=Math.min(P.W-1,cx+R); x++){
+      const dx=x-cx, dy=y-cy;
+      if(dx*dx+dy*dy > R2) continue;
+      const i=y*P.W+x;
+      if(grassF>0){ const g=w.grass[i]*grassF; w.grass[i]-=g; burned+=g; }
+    }
+  }
+  if(killF>0) for(const a of w.animals){
+    if(a.dead) continue;
+    const dx=a.x-cx, dy=a.y-cy;
+    if(dx*dx+dy*dy > R2) continue;
+    if(w.rnd()<killF){
+      a.dead='disturbed'; killed++;
+      /* its store leaves the world, booked where every other exit is booked
+         so the mass-balance identity still closes */
+      w.ledger.starvedFat += a.fat;
+    }
+  }
+  w.disturbances++; w.disturbKilled+=killed; w.ledger.grassBurned+=burned;
+  w.lastDisturb={ x:cx, y:cy, r:R, step:w.step, killed:killed,
+                  grass:+burned.toFixed(1) };
+  return w.lastDisturb;
+}
 
 /* ---- one world step ------------------------------------------------------ */
 function step(w){
   const P=w.P;
+  /* disturbance lands BEFORE anyone acts, so survivors get to respond to the
+     world it leaves rather than to the one that no longer exists */
+  disturb(w);
   if(w.explain) w.whys=[];         // one step's worth, never accumulating
   /* Grass first, and now the land differs: each cell's quality q sets both
      its compounding rate (growLo..growHi) and how fast it re-sprouts from
      bare. Good patches recover quickly and stand tall; poor patches are
      nearly barren. This is what makes a pixel worth defending. */
   const base=1/P.regrowEvery, lo=P.growLo, hi=P.growHi;
+  let grew=0;
   for(let i=0;i<w.grass.length;i++){
     const q=w.quality[i], rate=lo+(hi-lo)*q;
     const g=w.grass[i];
-    w.grass[i] = g<1 ? Math.min(1, g + base*(0.2+0.8*q))
-                     : Math.min(P.grassMax, g*(1+rate));
+    const ng = g<1 ? Math.min(1, g + base*(0.2+0.8*q))
+                   : Math.min(P.grassMax, g*(1+rate));
+    grew += ng-g; w.grass[i]=ng;
   }
+  /* primary production this step - the system's only external input */
+  w.ledger.grassGrown += grew;
   /* animals act in a fresh random order every step - a fixed order would
      hand the same animals first pick of grass and mates forever */
   const order=w.animals.filter(a=>!a.dead);
@@ -903,36 +1418,90 @@ function step(w){
   madeQueue=[];
   for(const a of order){ a.acted=false; }
   for(const a of order){ if(a.dead||a.acted) continue; act(w,a,idx); }
-  /* metabolism + death, then the newborns join */
-  for(const a of order){
+  /* metabolism + death, then the newborns join.
+     NEWBORNS ARE INCLUDED (Joe's action order, 2026-08-28): a baby used to
+     get one free step - no upkeep, no action, but fully edible. It now pays
+     its first step like everything else, which the scaled endowment covers. */
+  for(const a of order.concat(madeQueue)){
     if(a.dead) continue;
     /* basal floor: metabolism charges at least one body unit - a body-0
        animal still runs its machinery. Without this, mouth-fed grazing
        made B0 a zero-upkeep body plan and two of three test seeds hit the
        population cap on it (measured). */
-    a.fat -= P.moveCostPer*a.moved + P.bodyCostPer*basal(a,P);
+    const burn = P.moveCostPer*a.moved + P.bodyCostPer*basal(a,P);
+    a.fat -= burn; w.ledger.burned += burn;
+    a.moved=0;                    // paid for; the next step starts from zero
     a.age++;
     a.sinceMate=(a.sinceMate||0)+1;
     if(a.fat<P.starveBelow){ a.dead='starved'; w.starved++;
+      vital(w, key(a), 'starved');
+      w.ledger.starvedFat += a.fat;             // whatever store it still held
       if(a.carn){ w.carnStarved++; w.carnAgeSum+=a.age; } }
+    else if(P.mortality>0 && w.rnd()<P.mortality){
+      /* died of something the model does not simulate */
+      a.dead='mortality'; w.diedOfAge++;
+      vital(w, key(a), 'background');
+      w.ledger.starvedFat += a.fat;             // its store leaves the world too
+    }
   }
-  w.animals=w.animals.filter(a=>!a.dead).concat(madeQueue);
+  /* a newborn eaten on its birth step used to be concatenated in anyway and
+     counted alive by stats() for one full step (audit, 2026-08-28) */
+  w.animals=w.animals.filter(a=>!a.dead).concat(madeQueue.filter(a=>!a.dead));
+  w.aliveCount=w.animals.length;
+  /* close the vital-rate window and start a fresh one */
+  if(++w.vitalSteps>=P.vitalWindow){
+    w.vitalPrev=w.vitalCur; w.vitalCur=new Map(); w.vitalSteps=0;
+  }
   w.step++;
 }
 
 /* ---- observation --------------------------------------------------------- */
 function stats(w){
   const sp=new Map(); let herb=0,carn=0,fat=0;
+  /* Ages collected per species so the panel can show a MEDIAN age - the
+     mean is dragged around by the handful of very old survivors every
+     population carries, while the median says what a typical member's life
+     actually looks like. One extra array push per animal plus a sort per
+     species; measured at well under a millisecond for 25,000 animals, and
+     stats() runs once a frame, not once a step. */
+  const ages=new Map();
   for(const a of w.animals){
-    sp.set(key(a),(sp.get(key(a))||0)+1);
+    const k=key(a);
+    sp.set(k,(sp.get(k)||0)+1);
+    let a2=ages.get(k); if(!a2){ a2=[]; ages.set(k,a2); }
+    a2.push(a.age);
     if(a.carn)carn++; else herb++;
     fat+=a.fat;
   }
   let g=0, gCells=0;
   for(let i=0;i<w.grass.length;i++){ g+=w.grass[i]; if(w.grass[i]>=1) gCells++; }
   const list=[...sp.entries()].sort((a,b)=>b[1]-a[1]).map(([k,count])=>{
-    const carn=k.endsWith('C'), t=k.slice(0,-1).split(',').map(Number);
-    const e={ key:k, count, carn, legs:t[0], body:t[1], mouth:t[2], eyes:t[3] };
+    const t=parseKey(k), carn=t.carn;
+    const e={ key:k, count, carn, legs:t.legs, body:t.body, mouth:t.mouth,
+              eyes:t.eyes, bigF:t.bigF };
+    const ag=ages.get(k);
+    if(ag && ag.length){
+      ag.sort((x,y)=>x-y);
+      const m=ag.length>>1;
+      e.medianAge = ag.length%2 ? ag[m] : Math.round((ag[m-1]+ag[m])/2);
+    }
+    /* Vital rates over the last closed window (fall back to the window still
+       filling, so a fresh world is not blank). R is births per step as a
+       percentage of the species' CURRENT headcount; S/B/P split this
+       species' deaths by cause. */
+    const vw = w.vitalPrev.size? w.vitalPrev : w.vitalCur;
+    const span = w.vitalPrev.size? w.P.vitalWindow : Math.max(1,w.vitalSteps);
+    const v = vw.get(k);
+    if(v){
+      e.R = count? +(100*v.births/(span*count)).toFixed(2) : 0;
+      const d = v.starved+v.background+v.eaten;
+      e.deaths = d;
+      if(d){
+        e.S = Math.round(100*v.starved/d);
+        e.B = Math.round(100*v.background/d);
+        e.P = Math.round(100*v.eaten/d);
+      }
+    }
     if(carn){
       const m=w.preyLog.get(k);
       if(m) e.preyTop=[...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,2);
@@ -944,7 +1513,10 @@ function stats(w){
            grassPerCell:+(g/w.grass.length).toFixed(2),
            vegetatedPct:Math.round(100*gCells/w.grass.length),
            births:w.births, starved:w.starved, eaten:w.eaten, mutants:w.mutants,
-           evictions:w.evictions,
+           evictions:w.evictions, diedOfAge:w.diedOfAge,
+           huntsFailed:w.huntsFailed,
+           disturbances:w.disturbances, disturbKilled:w.disturbKilled,
+           lastDisturb:w.lastDisturb,
            carnFlips:w.carnFlips, carnBorn:w.carnBorn, carnStarved:w.carnStarved,
            carnMeanAge: w.carnStarved? +(w.carnAgeSum/w.carnStarved).toFixed(1):0,
            fatMean: w.animals.length? +(fat/w.animals.length).toFixed(2) : 0,
@@ -954,14 +1526,20 @@ function stats(w){
 
 /* the microscope needs to build animals and read the model's own verdicts */
 function makeAnimal(w, spec){
-  const a={ id:w.nextId++, x:spec.x|0, y:spec.y|0,
-    legs:spec.legs|0, body:Math.max(1,spec.body|0),
-    mouth:Math.max(1,spec.mouth|0), eyes:spec.eyes|0,
+  /* floors were enforced but not ceilings, and x,y were not bounded at all:
+     eyes or legs outside 0..10 indexed past MOVE_OFFS and crashed step(),
+     and an off-grid animal read another cell's grass (audit, 2026-08-28) */
+  const cl=(v,lo)=>Math.max(lo,Math.min(10,v|0));
+  const a={ id:w.nextId++,
+    x:Math.max(0,Math.min(w.P.W-1,spec.x|0)),
+    y:Math.max(0,Math.min(w.P.H-1,spec.y|0)),
+    legs:cl(spec.legs,0), body:cl(spec.body,1),
+    mouth:cl(spec.mouth,1), eyes:cl(spec.eyes,0), bigF:!!spec.bigF,
     fat:spec.fat===undefined?8:+spec.fat, carn:!!spec.carn,
     age:0, moved:0, sinceMate:0, founder:spec.name||'placed' };
   w.animals.push(a); return a;
 }
-global.Eco = { newWorld, step, stats, DEFAULTS, key, makeAnimal,
+global.Eco = { newWorld, step, stats, DEFAULTS, key, parseKey, makeAnimal,
   /* the same verdicts the engine uses, exposed for inspection */
   info:(w,a)=>({ basal:basal(a,w.P), upkeep:w.P.bodyCostPer*basal(a,w.P),
     hunger:hunger(w,a), ready:reproReady(w,a), urge:mateUrge(w,a),
