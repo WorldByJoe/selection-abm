@@ -978,7 +978,10 @@ function freeCellNear(w, idx, x, y, rad, carn, size){
     const nx=x+offs[i].dx, ny=y+offs[i].dy;
     if(nx<0||ny<0||nx>=w.P.W||ny>=w.P.H) continue;
     const kk=ny*w.P.W+nx;
-    if(cellHasRoom(w,idx[kk],carn,size,null,kk)) return {x:nx,y:ny};
+    /* a relocated animal - an evicted loser, or a newborn being placed - has
+       to be able to GET there, not merely be near */
+    if(cellHasRoom(w,idx[kk],carn,size,null,kk) && clearPath(w,x,y,nx,ny))
+      return {x:nx,y:ny};
   }
   return null;
 }
@@ -987,6 +990,32 @@ function vital(w, k, field){
   let v=w.vitalCur.get(k);
   if(!v){ v={births:0, starved:0, background:0, eaten:0}; w.vitalCur.set(k,v); }
   v[field]++;
+}
+
+/* Is the straight line from one cell to another clear of rock?
+
+   Blocking a cell stops anything STANDING there, but on its own it does not
+   stop anything CROSSING - and every way an animal changes position works by
+   distance, not by path: a stride of two steps over a one-cell ridge, a
+   newborn dispersing within its mother's leg reach, and above all eviction,
+   which relocates the loser up to three cells away regardless of its legs.
+   Measured before this existed: a SOLID wall with no gaps at all, animals
+   with legs 1 - which cannot stride over anything - and 746 of them ended up
+   on the far side, having never once stood on the rock itself.
+
+   Costs nothing in a world without walls (the first line returns immediately)
+   and at most `distance` array reads in one that has them. */
+function clearPath(w, x0, y0, x1, y1){
+  const blk=w.blocked;
+  if(!blk) return true;
+  const P=w.P, dx=x1-x0, dy=y1-y0;
+  const n=Math.max(Math.abs(dx), Math.abs(dy));
+  if(n===0) return true;
+  for(let i=1;i<=n;i++){
+    const x=Math.round(x0+dx*i/n), y=Math.round(y0+dy*i/n);
+    if(blk[y*P.W+x]) return false;
+  }
+  return true;
 }
 
 /* Prey within striking distance: the predator's own square, plus the ring
@@ -1226,7 +1255,7 @@ function act(w, a, idx){
     for(const o of MOVE_OFFS[a.legs]){
       const nx=a.x+o.dx, ny=a.y+o.dy;
       if(nx<0||ny<0||nx>=P.W||ny>=P.H) continue;
-      if(entryFor(w,idx,a,nx,ny)){
+      if(entryFor(w,idx,a,nx,ny) && clearPath(w,a.x,a.y,nx,ny)){
         CAND_X[nc]=nx; CAND_Y[nc]=ny; CAND_D[nc]=o.d; nc++;
       }
     }

@@ -505,8 +505,10 @@
       <input type="hidden" id="allometrySpan" value="2">
       <input type="hidden" id="sizeEyes" value="0">
       <input type="hidden" id="huntReach" value="0">
-      <input type="hidden" id="wallCount" value="0">
-      <input type="hidden" id="wallGaps" value="2">
+      <div class="field"><label for="wallCount">wall ridges <span class="u">0 = open ground</span></label>
+        <input type="number" id="wallCount" value="0" min="0" max="20" step="1"></div>
+      <div class="field"><label for="wallGaps">gaps per wall</label>
+        <input type="number" id="wallGaps" value="2" min="0" max="8" step="1"></div>
       <input type="hidden" id="convEyes" value="0">
       <input type="hidden" id="convLegs" value="0.04">
       <input type="hidden" id="intraguildGap" value="3">
@@ -739,6 +741,12 @@ function draw(){
   const s=Eco.stats(world), P=world.P;
   const cw=cv.width/P.W, chh=cv.height/P.H;
   ctx.fillStyle='#06090d'; ctx.fillRect(0,0,cv.width,cv.height);
+  /* rock first, so the ridges are visible even where nothing grows */
+  if(world.blocked){
+    ctx.fillStyle='rgb(104 98 88)';
+    for(let i=0;i<world.blocked.length;i++) if(world.blocked[i])
+      ctx.fillRect((i%P.W)*cw, (i/P.W|0)*chh, cw+0.5, chh+0.5);
+  }
   for(let i=0;i<world.grass.length;i++){
     /* cheap grass: draw only vegetated cells */
     const g=world.grass[i]; if(g<1) continue;
