@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Selection - an evolving ecology</title>
+<title>Ecology &amp; Evolution Sim</title>
 <!-- ==========================================================================
   ecology_run.html - the LONG-RUN LABORATORY for Joe's ecology model.
   Open this file in CHROME (double-click), click "choose data folder", pick a
@@ -91,6 +91,26 @@
   #setup .field .u{ color:#66748a; font-size:10px; }
   #setup .field input[type=checkbox]{ width:16px; height:16px; margin:3px 0 0; }
   #go{ background:#274d33; border-color:#3f7a52; font-size:14px; padding:10px 20px; }
+
+  /* The landing sits over everything until a door is chosen. */
+  #landing{ position:fixed; inset:0; z-index:40; background:#06090d;
+    display:flex; align-items:center; justify-content:center; padding:24px; }
+  #landing .lcard{ max-width:640px; text-align:center; }
+  /* the wordmark is dark ink meant for a light panel - on the black setup
+     ground it vanishes, so it keeps the cream card it wears elsewhere */
+  #landing .lmark{ margin:0 auto 24px; max-width:300px; background:#E7E2D8;
+    border-radius:10px; padding:12px 20px; }
+  #landing .lmark svg{ width:100%; height:auto; }
+  #landing h1{ font-size:22px; letter-spacing:.16em; margin:0 0 14px;
+    color:#eef4fc; text-transform:uppercase; }
+  #landing p{ color:#93a3ba; font-size:13px; line-height:1.6; margin:0 0 22px; }
+  #landing .lbtns{ display:flex; gap:12px; justify-content:center;
+    flex-wrap:wrap; margin-bottom:18px; }
+  #landing button{ font-size:14px; padding:11px 20px; }
+  #landing .lgo{ background:#274d33; border-color:#3f7a52; }
+  #landing .lfine{ font-size:11px; color:#6c7a8d; margin:0; }
+  /* restart controls, revealed once a world is running */
+  #restartRow{ display:none; margin-top:10px; }
 </style>
 <script>
 /* CACHE BUSTER - see the same note in ecology.html. This page is opened off
@@ -103,6 +123,334 @@
 </script>
 </head>
 <body>
+<div id="landing">
+  <div class="lcard">
+    <div class="lmark"><div id="wbj"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 120" 
+     role="img" aria-label="World by Joe">
+  <title>World by Joe</title>
+  <g><defs><clipPath id="wbj"><circle cx="60" cy="60" r="52"/></clipPath></defs>
+  <circle cx="60" cy="60" r="52" fill="#2B2118"/>
+  <g clip-path="url(#wbj)">
+   <g shape-rendering="crispEdges">
+    <rect x="34.00" y="8.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="40.50" y="8.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="47.00" y="8.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="53.50" y="8.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="60.00" y="8.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="66.50" y="8.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="73.00" y="8.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="79.50" y="8.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="21.00" y="14.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="27.50" y="14.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="34.00" y="14.50" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="40.50" y="14.50" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="47.00" y="14.50" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="53.50" y="14.50" width="6.50" height="6.50" fill="#C0522C"/>
+    <rect x="60.00" y="14.50" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="66.50" y="14.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="73.00" y="14.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="79.50" y="14.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="86.00" y="14.50" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="92.50" y="14.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="14.50" y="21.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="21.00" y="21.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="27.50" y="21.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="34.00" y="21.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="40.50" y="21.00" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="47.00" y="21.00" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="53.50" y="21.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="60.00" y="21.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="66.50" y="21.00" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="73.00" y="21.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="79.50" y="21.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="86.00" y="21.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="92.50" y="21.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="99.00" y="21.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="14.50" y="27.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="21.00" y="27.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="27.50" y="27.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="34.00" y="27.50" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="40.50" y="27.50" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="47.00" y="27.50" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="53.50" y="27.50" width="6.50" height="6.50" fill="#B8862B"/>
+    <rect x="60.00" y="27.50" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="66.50" y="27.50" width="6.50" height="6.50" fill="#C0522C"/>
+    <rect x="73.00" y="27.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="79.50" y="27.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="86.00" y="27.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="92.50" y="27.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="99.00" y="27.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="8.00" y="34.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="14.50" y="34.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="21.00" y="34.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="27.50" y="34.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="34.00" y="34.00" width="6.50" height="6.50" fill="#C0522C"/>
+    <rect x="40.50" y="34.00" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="47.00" y="34.00" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="53.50" y="34.00" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="60.00" y="34.00" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="66.50" y="34.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="73.00" y="34.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="79.50" y="34.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="86.00" y="34.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="92.50" y="34.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="99.00" y="34.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="105.50" y="34.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="8.00" y="40.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="14.50" y="40.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="21.00" y="40.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="27.50" y="40.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="34.00" y="40.50" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="40.50" y="40.50" width="6.50" height="6.50" fill="#B8862B"/>
+    <rect x="47.00" y="40.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="53.50" y="40.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="60.00" y="40.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="66.50" y="40.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="73.00" y="40.50" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="79.50" y="40.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="86.00" y="40.50" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="92.50" y="40.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="99.00" y="40.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="105.50" y="40.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="8.00" y="47.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="14.50" y="47.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="21.00" y="47.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="27.50" y="47.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="34.00" y="47.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="40.50" y="47.00" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="47.00" y="47.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="53.50" y="47.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="60.00" y="47.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="66.50" y="47.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="73.00" y="47.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="79.50" y="47.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="86.00" y="47.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="92.50" y="47.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="99.00" y="47.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="105.50" y="47.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="8.00" y="53.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="14.50" y="53.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="21.00" y="53.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="27.50" y="53.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="34.00" y="53.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="40.50" y="53.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="47.00" y="53.50" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="53.50" y="53.50" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="60.00" y="53.50" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="66.50" y="53.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="73.00" y="53.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="79.50" y="53.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="86.00" y="53.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="92.50" y="53.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="99.00" y="53.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="105.50" y="53.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="8.00" y="60.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="14.50" y="60.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="21.00" y="60.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="27.50" y="60.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="34.00" y="60.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="40.50" y="60.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="47.00" y="60.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="53.50" y="60.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="60.00" y="60.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="66.50" y="60.00" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="73.00" y="60.00" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="79.50" y="60.00" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="86.00" y="60.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="92.50" y="60.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="99.00" y="60.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="105.50" y="60.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="8.00" y="66.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="14.50" y="66.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="21.00" y="66.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="27.50" y="66.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="34.00" y="66.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="40.50" y="66.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="47.00" y="66.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="53.50" y="66.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="60.00" y="66.50" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="66.50" y="66.50" width="6.50" height="6.50" fill="#B8862B"/>
+    <rect x="73.00" y="66.50" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="79.50" y="66.50" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="86.00" y="66.50" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="92.50" y="66.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="99.00" y="66.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="105.50" y="66.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="8.00" y="73.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="14.50" y="73.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="21.00" y="73.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="27.50" y="73.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="34.00" y="73.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="40.50" y="73.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="47.00" y="73.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="53.50" y="73.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="60.00" y="73.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="66.50" y="73.00" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="73.00" y="73.00" width="6.50" height="6.50" fill="#C0522C"/>
+    <rect x="79.50" y="73.00" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="86.00" y="73.00" width="6.50" height="6.50" fill="#B8862B"/>
+    <rect x="92.50" y="73.00" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="99.00" y="73.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="105.50" y="73.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="8.00" y="79.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="14.50" y="79.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="21.00" y="79.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="27.50" y="79.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="34.00" y="79.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="40.50" y="79.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="47.00" y="79.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="53.50" y="79.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="60.00" y="79.50" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="66.50" y="79.50" width="6.50" height="6.50" fill="#C0522C"/>
+    <rect x="73.00" y="79.50" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="79.50" y="79.50" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="86.00" y="79.50" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="92.50" y="79.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="99.00" y="79.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="105.50" y="79.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="14.50" y="86.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="21.00" y="86.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="27.50" y="86.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="34.00" y="86.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="40.50" y="86.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="47.00" y="86.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="53.50" y="86.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="60.00" y="86.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="66.50" y="86.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="73.00" y="86.00" width="6.50" height="6.50" fill="#B8862B"/>
+    <rect x="79.50" y="86.00" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="86.00" y="86.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="92.50" y="86.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="99.00" y="86.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="14.50" y="92.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="21.00" y="92.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="27.50" y="92.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="34.00" y="92.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="40.50" y="92.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="47.00" y="92.50" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="53.50" y="92.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="60.00" y="92.50" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="66.50" y="92.50" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="73.00" y="92.50" width="6.50" height="6.50" fill="#D9B441"/>
+    <rect x="79.50" y="92.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="86.00" y="92.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="92.50" y="92.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="99.00" y="92.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="21.00" y="99.00" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="27.50" y="99.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="34.00" y="99.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="40.50" y="99.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="47.00" y="99.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="53.50" y="99.00" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="60.00" y="99.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="66.50" y="99.00" width="6.50" height="6.50" fill="#C8992F"/>
+    <rect x="73.00" y="99.00" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="79.50" y="99.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="86.00" y="99.00" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="92.50" y="99.00" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="34.00" y="105.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="40.50" y="105.50" width="6.50" height="6.50" fill="#46909B"/>
+    <rect x="47.00" y="105.50" width="6.50" height="6.50" fill="#5AA3AE"/>
+    <rect x="53.50" y="105.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="60.00" y="105.50" width="6.50" height="6.50" fill="#4E9AA6"/>
+    <rect x="66.50" y="105.50" width="6.50" height="6.50" fill="#54A0AB"/>
+    <rect x="73.00" y="105.50" width="6.50" height="6.50" fill="#469BA6"/>
+    <rect x="79.50" y="105.50" width="6.50" height="6.50" fill="#46909B"/>
+   </g>
+  <g stroke="#2B2118" stroke-width="1.00" stroke-opacity="1.00" stroke-linecap="butt">
+    <line x1="60.00" y1="8.00" x2="60.00" y2="112.00"/>
+    <line x1="8.00" y1="60.00" x2="60.00" y2="60.00"/>
+    <line x1="27.50" y1="8.00" x2="27.50" y2="60.00"/>
+    <line x1="8.00" y1="34.00" x2="27.50" y2="34.00"/>
+    <line x1="8.00" y1="21.00" x2="27.50" y2="21.00"/>
+    <line x1="14.50" y1="8.00" x2="14.50" y2="21.00"/>
+    <line x1="14.50" y1="21.00" x2="14.50" y2="34.00"/>
+    <line x1="27.50" y1="40.50" x2="60.00" y2="40.50"/>
+    <line x1="34.00" y1="8.00" x2="34.00" y2="40.50"/>
+    <line x1="27.50" y1="27.50" x2="34.00" y2="27.50"/>
+    <line x1="27.50" y1="21.00" x2="34.00" y2="21.00"/>
+    <line x1="34.00" y1="21.00" x2="60.00" y2="21.00"/>
+    <line x1="40.50" y1="8.00" x2="40.50" y2="21.00"/>
+    <line x1="53.50" y1="8.00" x2="53.50" y2="21.00"/>
+    <line x1="47.00" y1="21.00" x2="47.00" y2="40.50"/>
+    <line x1="34.00" y1="27.50" x2="47.00" y2="27.50"/>
+    <line x1="47.00" y1="34.00" x2="60.00" y2="34.00"/>
+    <line x1="34.00" y1="40.50" x2="34.00" y2="60.00"/>
+    <line x1="53.50" y1="40.50" x2="53.50" y2="60.00"/>
+    <line x1="47.00" y1="40.50" x2="47.00" y2="60.00"/>
+    <line x1="47.00" y1="47.00" x2="53.50" y2="47.00"/>
+    <line x1="53.50" y1="53.50" x2="60.00" y2="53.50"/>
+    <line x1="34.00" y1="60.00" x2="34.00" y2="112.00"/>
+    <line x1="8.00" y1="105.50" x2="34.00" y2="105.50"/>
+    <line x1="8.00" y1="73.00" x2="34.00" y2="73.00"/>
+    <line x1="8.00" y1="86.00" x2="34.00" y2="86.00"/>
+    <line x1="14.50" y1="73.00" x2="14.50" y2="86.00"/>
+    <line x1="21.00" y1="86.00" x2="21.00" y2="105.50"/>
+    <line x1="8.00" y1="99.00" x2="21.00" y2="99.00"/>
+    <line x1="14.50" y1="105.50" x2="14.50" y2="112.00"/>
+    <line x1="27.50" y1="105.50" x2="27.50" y2="112.00"/>
+    <line x1="60.00" y1="99.00" x2="112.00" y2="99.00"/>
+    <line x1="60.00" y1="53.50" x2="112.00" y2="53.50"/>
+    <line x1="92.50" y1="8.00" x2="92.50" y2="53.50"/>
+    <line x1="60.00" y1="34.00" x2="92.50" y2="34.00"/>
+    <line x1="73.00" y1="8.00" x2="73.00" y2="34.00"/>
+    <line x1="60.00" y1="27.50" x2="73.00" y2="27.50"/>
+    <line x1="60.00" y1="14.50" x2="73.00" y2="14.50"/>
+    <line x1="73.00" y1="21.00" x2="92.50" y2="21.00"/>
+    <line x1="79.50" y1="8.00" x2="79.50" y2="21.00"/>
+    <line x1="79.50" y1="21.00" x2="79.50" y2="34.00"/>
+    <line x1="79.50" y1="34.00" x2="79.50" y2="53.50"/>
+    <line x1="73.00" y1="34.00" x2="73.00" y2="53.50"/>
+    <line x1="60.00" y1="47.00" x2="73.00" y2="47.00"/>
+    <line x1="73.00" y1="47.00" x2="79.50" y2="47.00"/>
+    <line x1="79.50" y1="47.00" x2="92.50" y2="47.00"/>
+    <line x1="92.50" y1="27.50" x2="112.00" y2="27.50"/>
+    <line x1="105.50" y1="8.00" x2="105.50" y2="27.50"/>
+    <line x1="92.50" y1="21.00" x2="105.50" y2="21.00"/>
+    <line x1="105.50" y1="21.00" x2="112.00" y2="21.00"/>
+    <line x1="92.50" y1="47.00" x2="112.00" y2="47.00"/>
+    <line x1="105.50" y1="27.50" x2="105.50" y2="47.00"/>
+    <line x1="92.50" y1="34.00" x2="105.50" y2="34.00"/>
+    <line x1="105.50" y1="40.50" x2="112.00" y2="40.50"/>
+    <line x1="99.00" y1="47.00" x2="99.00" y2="53.50"/>
+    <line x1="79.50" y1="53.50" x2="79.50" y2="99.00"/>
+    <line x1="60.00" y1="92.50" x2="79.50" y2="92.50"/>
+    <line x1="60.00" y1="73.00" x2="79.50" y2="73.00"/>
+    <line x1="66.50" y1="53.50" x2="66.50" y2="73.00"/>
+    <line x1="60.00" y1="66.50" x2="66.50" y2="66.50"/>
+    <line x1="66.50" y1="66.50" x2="79.50" y2="66.50"/>
+    <line x1="79.50" y1="66.50" x2="112.00" y2="66.50"/>
+    <line x1="92.50" y1="53.50" x2="92.50" y2="66.50"/>
+    <line x1="105.50" y1="53.50" x2="105.50" y2="66.50"/>
+    <line x1="99.00" y1="66.50" x2="99.00" y2="99.00"/>
+    <line x1="79.50" y1="73.00" x2="99.00" y2="73.00"/>
+    <line x1="92.50" y1="66.50" x2="92.50" y2="73.00"/>
+    <line x1="79.50" y1="79.50" x2="99.00" y2="79.50"/>
+    <line x1="92.50" y1="73.00" x2="92.50" y2="79.50"/>
+    <line x1="99.00" y1="86.00" x2="112.00" y2="86.00"/>
+    <line x1="99.00" y1="79.50" x2="112.00" y2="79.50"/>
+    <line x1="86.00" y1="99.00" x2="86.00" y2="112.00"/>
+    <line x1="105.50" y1="99.00" x2="105.50" y2="112.00"/>
+  </g>
+  </g>
+  <circle cx="60" cy="60" r="52" fill="none" stroke="#2B2118" stroke-width="5"/>
+</g>
+  <text x="150" y="74" font-family="Futura,'Futura PT','Century Gothic','Avenir Next',Questrial,'Trebuchet MS',sans-serif" font-size="34" font-weight="600"
+        letter-spacing="5.4" fill="#2B2118">WORLD <tspan font-weight="400" fill="#8A7F6D">BY</tspan> JOE</text>
+</svg></div></div>
+    <h1>Ecology &amp; Evolution Sim</h1>
+    <p>Grass grows. Animals eat, breed, hunt and starve. Nothing here is
+       scripted &mdash; every species you see arrived by mutation and stayed
+       because it worked.</p>
+    <div class="lbtns">
+      <button id="goDefault" class="lgo">Start with default settings</button>
+      <button id="goCustom">Customise settings</button>
+    </div>
+    <p class="lfine">Default settings use the shipped rules with a randomly
+       drawn set of founding species, so every run differs.</p>
+  </div>
+</div>
+
 <canvas id="cv"></canvas>
 <canvas id="strip"></canvas>
 <div id="setup">
@@ -156,8 +504,10 @@
       <input type="hidden" id="huntCost" value="0">
       <input type="hidden" id="allometrySpan" value="2">
       <input type="hidden" id="sizeEyes" value="0">
+      <div class="field"><label for="mortality">background death <span class="u">chance per step</span></label>
+        <input type="number" id="mortality" value="0.002" min="0" max="0.05" step="0.001"></div>
       <div class="field"><label for="provLowSteps">f provisioning <span class="u">steps of upkeep</span></label>
-        <input type="number" id="provLowSteps" value="4" min="1" max="12" step="1"></div>
+        <input type="number" id="provLowSteps" value="3" min="1" max="12" step="1"></div>
       <div class="field"><label for="provHighSteps">F provisioning <span class="u">steps of upkeep</span></label>
         <input type="number" id="provHighSteps" value="10" min="2" max="20" step="1"></div>
       <div class="field"><label for="disturbEvery">disturbance interval <span class="u">steps, 0 = off</span></label>
@@ -199,7 +549,7 @@
   <div class="row"><span class="k">grass</span><br><span class="v" id="grass"></span></div>
   <div class="row"><span class="k">pace</span><br><span class="v" id="pace"></span>
     <div><button data-s="1">1 paced</button><button data-s="2">2 fast</button><button data-s="3">3 max</button></div></div>
-  <div id="sp"></div>
+  <div id="restartRow"><button id="againSame">restart &middot; same settings</button><button id="againRand">restart &middot; new random world</button></div><div id="sp"></div>
 </div>
 <script>
 'use strict';
@@ -552,7 +902,7 @@ function randomiseLandscape(){
   set('disturbDiamHi',L.disturbDiamHi); set('disturbKill',L.disturbKill);
   set('disturbGrass',L.disturbGrass);
 }
-randomiseLandscape();            // and on first open, too
+/* the landing decides whether anything is randomised */
 document.getElementById('clearCarn').onclick=()=>{
   for(let i=0;i<NSP;i++) document.getElementById('d'+i).value='H';
 };
@@ -577,6 +927,7 @@ document.getElementById('go').onclick=()=>{
       questLitters:num('questLitters'), carnMateBoost:num('carnMateBoost'),
       huntCost:num('huntCost'), allometrySpan:num('allometrySpan'),
       sizeEyes:num('sizeEyes'),
+      mortality:num('mortality'),
       provLowSteps:num('provLowSteps'), provHighSteps:num('provHighSteps'),
       disturbEvery:num('disturbEvery'), disturbDiamLo:num('disturbDiamLo'),
       disturbDiamHi:num('disturbDiamHi'), disturbKill:num('disturbKill'),
@@ -593,6 +944,54 @@ document.getElementById('go').onclick=()=>{
 
 newRun();
 requestAnimationFrame(frame);
+</script>
+
+<script>
+/* THE TWO DOORS, and restarting. Everything below drives the setup sheet the
+   lab already has - it does not reimplement any of it. */
+(function(){
+  var landing=document.getElementById('landing'),
+      setup=document.getElementById('setup');
+  setup.style.display='none';                 // hidden until a door is chosen
+
+  /* founders vary even on the default path, or every visitor sees one world.
+     randomiseLandscape is suppressed for that call so the LANDSCAPE and RULES
+     stay at their shipped defaults - that is what "default settings" means. */
+  function randomFoundersOnly(){
+    var real=randomiseLandscape;
+    randomiseLandscape=function(){};
+    document.getElementById('randTraits').click();
+    randomiseLandscape=real;
+  }
+  function begin(){
+    landing.style.display='none';
+    document.getElementById('go').click();
+    document.getElementById('restartRow').style.display='block';
+  }
+  document.getElementById('goDefault').onclick=function(){
+    randomFoundersOnly(); begin();
+  };
+  document.getElementById('goCustom').onclick=function(){
+    landing.style.display='none';
+    setup.style.display='';
+  };
+  /* the sheet's own start button also reveals the restart controls */
+  var go=document.getElementById('go'), prev=go.onclick;
+  go.onclick=function(e){ prev.call(this,e);
+    document.getElementById('restartRow').style.display='block'; };
+
+  /* SAME SETTINGS keeps every parameter and draws a new seed, so it is the
+     same rules on fresh ground rather than a replay. NEW RANDOM WORLD
+     redraws founders, landscape and rules together. */
+  document.getElementById('againSame').onclick=function(){
+    if(SETUP) SETUP.seed=null;
+    newRun();
+  };
+  document.getElementById('againRand').onclick=function(){
+    document.getElementById('randTraits').click();   // founders + landscape
+    document.getElementById('go').click();           // re-read the sheet
+  };
+})();
 </script>
 </body>
 </html>
