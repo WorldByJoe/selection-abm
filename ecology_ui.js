@@ -76,8 +76,12 @@
         : 'open ground \u2014 no barriers'],
       ['HUNTING', 'gape ' + (P.gapeStrict ? 'mouth > body' : 'mouth \u2265 body')
         + ' \u00b7 strike reach ' + P.huntReach + (P.huntReach ? ' cells' : ' (own square only)')
-        + ' \u00b7 a kill yields 0.9 \u2212 ' + P.convLegs + '\u00d7legs'
-        + (P.convEyes ? ' \u2212 ' + P.convEyes + '\u00d7eyes' : '')
+        /* the old wording read as though the yield WAS 0.9-0.04*legs, and did
+           not say whose legs. A kill yields a FRACTION of the carcass, and the
+           carcass is the prey's legs + body + fat. */
+        + ' \u00b7 a kill yields (prey legs+body+fat) \u00d7 (0.9 \u2212 '
+        + P.convLegs + '\u00d7 the HUNTER\u2019s legs'
+        + (P.convEyes ? ' \u2212 ' + P.convEyes + '\u00d7 its eyes' : '') + ')'
         + ' \u00b7 a carnivore needs a size edge of ' + P.intraguildGap
         + ' (legs+body+mouth) to take another carnivore'],
       ['BUILD', P.allometrySpan
