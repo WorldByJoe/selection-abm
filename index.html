@@ -504,7 +504,9 @@
       <input type="hidden" id="huntCost" value="0">
       <input type="hidden" id="allometrySpan" value="2">
       <input type="hidden" id="sizeEyes" value="0">
-      <input type="hidden" id="huntReach" value="1">
+      <input type="hidden" id="huntReach" value="0">
+      <input type="hidden" id="wallCount" value="0">
+      <input type="hidden" id="wallGaps" value="2">
       <input type="hidden" id="convEyes" value="0">
       <input type="hidden" id="convLegs" value="0.04">
       <input type="hidden" id="intraguildGap" value="3">
@@ -927,7 +929,7 @@ function randomiseLandscape(){
   set('growLo',L.growLo);         set('growHi',L.growHi);
   set('grassMax',L.grassMax);
   set('provLowSteps',L.provLowSteps); set('provHighSteps',L.provHighSteps);
-  set('disturbEvery',L.disturbEvery); set('disturbDiamLo',L.disturbDiamLo);
+  set('wallCount',L.wallCount); set('disturbEvery',L.disturbEvery); set('disturbDiamLo',L.disturbDiamLo);
   set('disturbDiamHi',L.disturbDiamHi); set('disturbKill',L.disturbKill);
   set('disturbGrass',L.disturbGrass);
 }
@@ -957,6 +959,7 @@ document.getElementById('go').onclick=()=>{
       huntCost:num('huntCost'), allometrySpan:num('allometrySpan'),
       sizeEyes:num('sizeEyes'),
       mortality:num('mortality'), huntReach:num('huntReach'),
+      wallCount:num('wallCount'), wallGaps:num('wallGaps'),
       convEyes:num('convEyes'), convLegs:num('convLegs'),
       intraguildGap:num('intraguildGap'),
       provLowSteps:num('provLowSteps'), provHighSteps:num('provHighSteps'),

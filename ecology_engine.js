@@ -212,6 +212,27 @@ const DEFAULTS = {
      than size-selective: density-independent mortality is the classic
      condition favouring r-strategists, and biasing it by body size would
      confound the very mechanism this is here to create. */
+  /* WALLS (Joe, 2026-08-29). Impassable ridges scattered across the map, to
+     break the global synchrony that lets one herbivore wave sweep the whole
+     world and leave it bare - measured at a ~150-step cycle with 75-fold
+     amplitude. Subdividing space decouples local booms and busts so they
+     average out instead of adding up.
+
+     Implemented as BLOCKED CELLS rather than walls between cells, because
+     that is far cheaper: a blocked cell is one array read in the movement
+     loop, whereas an edge between cells would need the path of every
+     multi-cell move traced and tested against every edge it crosses - on the
+     hottest loop in the engine. Drawn as thin lines rather than blobs, so
+     they cost almost no habitat: a one-cell ridge across a 160-wide map is
+     about 1% of the ground.
+
+     GAPS MATTER. Sealed compartments do not stabilise a world, they fragment
+     it - isolated pockets go extinct with no way to be recolonised. Every
+     wall therefore carries openings. */
+  wallCount: 0,           // 0 = no walls
+  wallGaps: 2,            // openings per wall, so nothing is ever sealed off
+  wallSpan: 0.75,         // fraction of the map's width or height a wall crosses
+
   disturbEvery: 0,        // 0 = never. Expected steps between events
   /* SIZE IS A DIAMETER, in cells - what you would measure across the scar on
      the map. It was a radius until 2026-08-29, which made "10 to 100" mean
@@ -348,7 +369,13 @@ const DEFAULTS = {
      Deliberately NOT routed through perceive(), which is limited by eyes:
      the dominant predators evolve to eyes 0, and a blind animal can still
      strike what it is touching - the same reasoning as touchMates. */
-  huntReach: 1,        // SHIPPED 2026-08-29 - see the note below
+  /* REVERTED to 0 (Joe, 2026-08-29). At reach 1 the full 10,000-step
+     factorial showed prey answering it by getting BIG: herbivore body 3.28 ->
+     5.87 alone and 6.87 combined with convEyes 0, escaping into the gape
+     refuge. The guild ended up SMALLER than with convEyes 0 alone (44 and 26
+     against 85). The mechanism worked; the evolutionary answer to it undid
+     the benefit. Kept as a parameter. */
+  huntReach: 0,
 
   convEyes: 0,         // SHIPPED 2026-08-29 - sight is no longer taxed
   /* 2x2 at 6,500 steps, 3 seeds, moderate world (grassMax 50, growth 2-18%).
@@ -544,6 +571,34 @@ function randomFounders(rnd, P){
    the old comma form shredded every CSV it was written into, and dots read
    like an address at a glance. Order is the four morphological traits, the
    provisioning strategy, then the diet. */
+/* Lay out the walls: each is a straight ridge, horizontal or vertical, at a
+   random offset, spanning wallSpan of the map, with wallGaps openings punched
+   through it. Returns a Uint8Array flag per cell. */
+function buildWalls(P, rnd){
+  const N=P.W*P.H, blocked=new Uint8Array(N);
+  for(let k=0;k<(P.wallCount|0);k++){
+    const vert = rnd()<0.5;
+    const len  = Math.round((vert?P.H:P.W)*P.wallSpan);
+    const start= Math.floor(rnd()*((vert?P.H:P.W)-len+1));
+    const at   = Math.floor(rnd()*(vert?P.W:P.H));
+    /* punch the gaps first so they can be checked cheaply while drawing */
+    const gaps=[];
+    for(let g=0; g<(P.wallGaps|0); g++){
+      const c=start+Math.floor(rnd()*len);
+      gaps.push([c-1, c+1]);            // three cells wide, enough to walk through
+    }
+    for(let i=start;i<start+len;i++){
+      let open=false;
+      for(const gp of gaps) if(i>=gp[0] && i<=gp[1]){ open=true; break; }
+      if(open) continue;
+      const x = vert? at : i, y = vert? i : at;
+      if(x<0||y<0||x>=P.W||y>=P.H) continue;
+      blocked[y*P.W+x]=1;
+    }
+  }
+  return blocked;
+}
+
 function key(a){
   return 'L'+a.legs+'.B'+a.body+'.M'+a.mouth+'.E'+a.eyes+
          '.'+(a.bigF?'F':'f')+'.'+(a.carn?'C':'H');
@@ -600,12 +655,14 @@ function buildQuality(P, rnd){
 function newWorld(seed, opts){
   const P = Object.assign({}, DEFAULTS, opts||{});
   const rnd = mulberry32(seed|0);
+  const blocked = P.wallCount ? buildWalls(P, rnd) : null;
   const grass = new Float32Array(P.W*P.H).fill(P.grassInit);
+  if(blocked) for(let i=0;i<grass.length;i++) if(blocked[i]) grass[i]=0;
   const quality = buildQuality(P, rnd);
   const w = { P, rnd, grass, quality, animals:[], step:0, nextId:1,
               births:0, starved:0, eaten:0, mutants:0,
               carnFlips:0, carnBorn:0, carnStarved:0, carnAgeSum:0, evictions:0,
-              diedOfAge:0, aliveCount:0, huntsFailed:0,
+              diedOfAge:0, aliveCount:0, huntsFailed:0, blocked:blocked,
               disturbances:0, disturbKilled:0, lastDisturb:null,
               vitalCur:new Map(), vitalPrev:new Map(), vitalSteps:0,
               /* MASS BALANCE (Joe, 2026-08-28). Every mutation of an
@@ -671,6 +728,7 @@ function newWorld(seed, opts){
           if(P.capPerDiet && b.carn!==!!sp.carn) continue;
           n++;
         }
+        if(w.blocked && w.blocked[py*P.W+px]) continue;
         if(n<P.cellCap) placed=true;
       }
       if(!placed){ w.founderSkipped=(w.founderSkipped||0)+1; continue; }
@@ -854,8 +912,9 @@ const ENTRY={ evict:null };
    under the mass rule it is "their combined sizeOf plus mine fits the
    budget", with an empty cell always admitting one so a giant is never
    homeless. `excl` skips an occupant (the mover itself). */
-function cellHasRoom(w, cell, carn, size, excl){
+function cellHasRoom(w, cell, carn, size, excl, k){
   const P=w.P;
+  if(k!==undefined && w.blocked && w.blocked[k]) return false;   // rock
   if(!cell) return true;
   let n=0, m=0;
   for(const b of cell){
@@ -867,6 +926,7 @@ function cellHasRoom(w, cell, carn, size, excl){
   return n<P.cellCap;
 }
 function entryFor(w, idx, a, x, y){
+  if(w.blocked && w.blocked[y*w.P.W+x]) return null;              // rock
   const cell=idx[y*w.P.W+x];
   if(!cell){ ENTRY.evict=null; return ENTRY; }
   /* Count only the LIVING (an animal eaten earlier this step has left a
@@ -880,7 +940,7 @@ function entryFor(w, idx, a, x, y){
     if(perDiet && b.carn!==a.carn) continue;
     if(!weakest || sizeOf(b,w.P)<sizeOf(weakest,w.P)) weakest=b;
   }
-  if(cellHasRoom(w,cell,a.carn,sizeOf(a,w.P),a)){ ENTRY.evict=null; return ENTRY; }
+  if(cellHasRoom(w,cell,a.carn,sizeOf(a,w.P),a,y*w.P.W+x)){ ENTRY.evict=null; return ENTRY; }
   if(weakest && sizeOf(a,w.P)>sizeOf(weakest,w.P)){ ENTRY.evict=weakest; return ENTRY; }
   return null;
 }
@@ -917,7 +977,8 @@ function freeCellNear(w, idx, x, y, rad, carn, size){
   for(let i=0;i<offs.length;i++){
     const nx=x+offs[i].dx, ny=y+offs[i].dy;
     if(nx<0||ny<0||nx>=w.P.W||ny>=w.P.H) continue;
-    if(cellHasRoom(w,idx[ny*w.P.W+nx],carn,size,null)) return {x:nx,y:ny};
+    const kk=ny*w.P.W+nx;
+    if(cellHasRoom(w,idx[kk],carn,size,null,kk)) return {x:nx,y:ny};
   }
   return null;
 }
@@ -973,7 +1034,7 @@ function babySlot(w, idx, mom, carn){
   const home=idx[mom.y*P.W+mom.x];
   /* the newborn inherits the mother's build, so its footprint is hers */
   const size=sizeOf(mom,P);
-  if(cellHasRoom(w,home,carn,size,null)) return {x:mom.x,y:mom.y};
+  if(cellHasRoom(w,home,carn,size,null,mom.y*P.W+mom.x)) return {x:mom.x,y:mom.y};
   return freeCellNear(w,idx,mom.x,mom.y,mom.legs,carn,size);
 }
 
@@ -1515,6 +1576,7 @@ function step(w){
     const g=w.grass[i];
     const ng = g<1 ? Math.min(1, g + base*(0.2+0.8*q))
                    : Math.min(P.grassMax, g*(1+rate));
+    if(w.blocked && w.blocked[i]) continue;      // bare rock grows nothing
     grew += ng-g; w.grass[i]=ng;
   }
   /* primary production this step - the system's only external input */

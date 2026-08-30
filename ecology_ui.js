@@ -70,6 +70,10 @@
           + Math.round((P.disturbCoupled?P.disturbKill:P.disturbGrass)*100)
           + '% of the grass'
         : 'none \u2014 this world is never disturbed'],
+      ['TERRAIN', P.wallCount
+        ? P.wallCount + ' impassable ridges, each crossing '
+          + Math.round(P.wallSpan*100) + '% of the map with ' + P.wallGaps + ' gaps'
+        : 'open ground \u2014 no barriers'],
       ['HUNTING', 'gape ' + (P.gapeStrict ? 'mouth > body' : 'mouth \u2265 body')
         + ' \u00b7 strike reach ' + P.huntReach + (P.huntReach ? ' cells' : ' (own square only)')
         + ' \u00b7 a kill yields 0.9 \u2212 ' + P.convLegs + '\u00d7legs'
@@ -126,6 +130,9 @@
          kill and grass fractions are drawn INDEPENDENTLY: a world can be a
          disease (kills animals, spares the grass), a drought (spares animals,
          strips the grass), or a fire (both). */
+      /* half the worlds get ridges; thin lines, so even eight of them cost
+         under 5% of the ground while cutting it into semi-separate basins */
+      wallCount:       R() < 0.5 ? 0 : Math.round(u(2, 10)),
       disturbEvery:    R() < 0.25 ? 0 : Math.round(u(120, 1500)),
       disturbDiamLo: Math.round(u(4, 10)),
       disturbDiamHi: Math.round(u(24, 90)),
