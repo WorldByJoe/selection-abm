@@ -756,7 +756,10 @@ function draw(){
   }
   for(const a of world.animals){
     if(!a._col) a._col=colOf(Eco.key(a));
-    ctx.fillStyle=a._col;
+    /* Yellow for a few turns after a kill, and only at paces 1 and 2 where
+       every step is drawn - at max pace a frame covers dozens of steps and
+       the flashes would be a meaningless blizzard. */
+    ctx.fillStyle=justAte(a) ? '#ffe85a' : a._col;
     const r=Math.max(2,(0.25+0.05*a.body)*cw);
     ctx.fillRect(a.x*cw+(cw-r)/2, a.y*chh+(chh-r)/2, r, r);
   }
@@ -796,6 +799,10 @@ function draw(){
 }
 
 let lastDraw=0, lastPaced=0;
+/* a flash, not a state - a couple of turns, so it reads as an event */
+const FLASH_STEPS=3;
+function justAte(a){ return speed<=2 && a.ateAt!==undefined
+                            && world.step-a.ateAt<FLASH_STEPS; }
 /* THE THREE PACES (rewritten 2026-08-29). They used to differ only in how
    many steps each frame ran, while the redraw was pinned at one every 400ms
    for all of them - so every setting looked the same on screen, and "paced"

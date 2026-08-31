@@ -1431,6 +1431,10 @@ function act(w, a, idx){
       }
     } else {
       best.target.dead='eaten'; w.eaten++;
+      /* stamp the HUNTER with the step it last ate, so a display can flash the
+         predator itself rather than the ground. A step count, not a wall
+         clock, so the mark lasts the same number of TURNS at any pace. */
+      a.ateAt=w.step;
       vital(w, key(best.target), 'eaten');
       const gain=convEff(a,P)*preyValue(best.target);
       a.fat+=gain;
