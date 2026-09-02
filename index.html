@@ -526,15 +526,17 @@
       <div class="field"><label for="disturbGrass">fraction of grass stripped</label>
         <input type="number" id="disturbGrass" value="0.6" min="0" max="1" step="0.05"></div>
     </div>
-    <div class="hint">Provisioning is a species trait: f spends little on each newborn and F spends a lot, and the two do not interbreed. Disturbance hits a random patch on that interval - most events are small, a few are very large. Killing animals but sparing the grass rewards whoever recolonises fastest; stripping the grass too forces the colonists to live on what their parents gave them.</div>
+    <div class="hint">Provisioning is a species trait: f spends little on each newborn and F spends a lot, and the two do not interbreed. Disturbance hits a random patch on that interval - most events are small, a few are very large. Killing animals but sparing the grass rewards whoever recolonises fastest; stripping the grass too forces the colonists to live on what their parents gave them. The
+      <b>carnivore-on-carnivore size gap</b> is the only thing that stops
+      predators eating each other: a hunter's chance against another carnivore
+      is zero when they are the same size (legs+body+mouth) and rises to its
+      full concealment-limited value once it is this many units bigger &mdash;
+      so a species can never eat itself, and newborns are safe from their
+      parents.</div>
   </fieldset>
 
   <fieldset><legend>energy economics</legend>
     <div class="fields">
-      <div class="field"><label for="legacyEcon">legacy economics <span class="u">pre&#8209;2026&#8209;09&#8209;01</span></label>
-        <input type="checkbox" id="legacyEcon"></div>
-      <div class="field"><label for="gapeStrict">gape must exceed body <span class="u">strict &gt;</span></label>
-        <input type="checkbox" id="gapeStrict"></div>
       <div class="field"><label for="reproReserveSteps">repro reserve <span class="u">steps of upkeep</span></label>
         <input type="number" id="reproReserveSteps" value="25" min="0" max="100" step="1"></div>
       <div class="field"><label for="sdaFrac">digestion cost <span class="u">fraction of a meal</span></label>
@@ -557,9 +559,6 @@
         <input type="number" id="buildMouth" value="0.7" min="0" max="20" step="0.1"></div>
       <div class="field"><label for="buildEyes">build: eyes</label>
         <input type="number" id="buildEyes" value="0.07" min="0" max="20" step="0.01"></div>
-      <input type="hidden" id="eyeCost" value="1">
-      <input type="hidden" id="convEyes" value="0">
-      <input type="hidden" id="convLegs" value="0.04">
     </div>
     <div class="hint">Every step an animal burns <b>basal</b> = 0.75&times;legs +
       1.8&times;body + 0.3&times;mouth + 0.15&times;eyes, tenths of a fat unit per
@@ -567,12 +566,8 @@
       4.5&times;body + 0.7&times;mouth + 0.07&times;eyes plus its starting fat; and
       a kill returns a fixed fraction of what each prey tissue cost to build
       (legs 0.85, body 0.65, mouth 0.15, eyes 0.17, fat 0.92). All from mammal
-      tissue physiology, 2026&#8209;09&#8209;01. <b>Legacy economics</b> restores
-      the older flat costs and the predator-side conversion discount; the three
-      &ldquo;legacy only&rdquo; knobs act only then. The gape is
-      <b>mouth &ge; body</b> unless <b>strict</b> is ticked; strict was found to
-      starve derived carnivores whenever the dominant herbivore's mouth equalled
-      its body.</div>
+      tissue physiology, 2026&#8209;09&#8209;01. A hunter can take any prey whose
+      body is no wider than its mouth (<b>mouth &ge; body</b>).</div>
   </fieldset>
 
   <fieldset><legend>the run</legend>
@@ -582,6 +577,28 @@
       <div class="field"><label for="stopAtIn">stop at step <span class="u">0 = never</span></label>
         <input type="number" id="stopAtIn" value="0" min="0" step="1000"></div>
     </div>
+  </fieldset>
+
+  <fieldset><legend>legacy settings</legend>
+    <div class="fields">
+      <div class="field"><label for="legacyEcon">legacy economics <span class="u">pre&#8209;2026&#8209;09&#8209;01</span></label>
+        <input type="checkbox" id="legacyEcon"></div>
+      <div class="field"><label for="gapeStrict">gape must exceed body <span class="u">strict &gt;, pre&#8209;2026&#8209;09&#8209;01</span></label>
+        <input type="checkbox" id="gapeStrict"></div>
+      <input type="hidden" id="eyeCost" value="1">
+      <input type="hidden" id="convEyes" value="0">
+      <input type="hidden" id="convLegs" value="0.04">
+    </div>
+    <div class="hint">Everything here reproduces the model as it stood before
+      2026&#8209;09&#8209;01, for comparison runs. <b>Legacy economics</b>
+      restores the flat costs (basal = legs + body + eye&nbsp;upkeep&times;eyes,
+      build = legs + body + mouth, a kill worth legs + body + fat) and the
+      predator-side conversion discount 0.9 &minus; eyes&nbsp;cost&times;eyes
+      &minus; legs&nbsp;cost&times;legs; the three numbers act only when it is
+      ticked. <b>Strict gape</b> requires mouth &gt; body rather than &ge;; it
+      was found to starve derived carnivores whenever the dominant herbivore's
+      mouth equalled its body, and cannibalism is already prevented by the size
+      gap above.</div>
   </fieldset>
 
   <button id="go">start this world</button>
