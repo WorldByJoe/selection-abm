@@ -153,7 +153,11 @@ const DEFAULTS = {
   growLo: 0.02,           // mean of growLo and growHi is 0.10: the old
   growHi: 0.18,           // uniform rate, now spread across the map
   mutationP: 0.05,
-  moveCostPer: 0.1,       // fat per unit distance moved
+  moveCostPer: 0.02,      /* fat per unit distance, now scaled by the animal's
+     own basal (see the burn term). Was 0.1, which put a mid forager at 14.7%
+     of its burn on locomotion and a full-legs mover at 25%; field budgets give
+     1-3% for a small forager, 10-15% for a wide-ranging carnivore and under
+     19% as a hard ceiling. At 0.02 the mid forager sits at 3.3%. */
   bodyCostPer: 0.1,       // fat per unit of basal tissue per step
   eyeCost: 1.0,           // how much one unit of eye counts toward basal
                           // upkeep, relative to a unit of leg or body.
@@ -456,7 +460,50 @@ const DEFAULTS = {
   founders: null,         // explicit founder list, or null to draw at random
 
   /* --- the three risk-tolerance parameters ----------------------------- */
-  reproReserveSteps: 15,  // keep 15 steps of body metabolism before breeding
+  /* ---- MAMMAL ENERGY ECONOMICS (Joe, 2026-09-01) -----------------------
+     Three coefficient sets, derived separately and deliberately kept apart,
+     because they answer different physiological questions:
+       BUILD      one-time biosynthetic cost, paid out of parental fat.
+                  Tracks tissue MASS. Per gram, tissues cost almost the same to
+                  build (muscle 0.135, gut 0.151, bone 0.162 fat-units/g) - lean
+                  tissue is 75-80% water and water is free. What differentiates
+                  the traits is how much tissue a trait unit buys: legs 35% of
+                  lean mass, body 35%, mouth 6% (the gut is a SMALL organ),
+                  eyes 0.3%.
+       BASAL      per-step running cost. Tracks mass x metabolic RATE, which is
+                  a different ordering: the gut is 6% of the mass but 15% of
+                  resting metabolism. Non-primate mammal budget (Mink 1981,
+                  n=28): muscle 22% of RMR, GI 15%, CNS 5%, rest of soma 58%.
+       RECOVERY   what a predator gets back, as e_t * c_t. e_t is pure
+                  accessibility x digestibility, in [0,1], so recovery can never
+                  exceed what went in. THAT IS THE POINT - mass/energy balance
+                  is structural, not tuned.
+     All linear: across the 1..10 trait range the 3/4 exponent buys a 1.78x
+     spread and costs a great deal of clarity, so it is not worth it here.
+     Set legacyEcon true to restore every pre-2026-09-01 form exactly. */
+  legacyEcon: false,
+  buildLegs: 3.8, buildBody: 4.5, buildMouth: 0.7, buildEyes: 0.07,
+  basalLegs: 0.75, basalBody: 1.8, basalMouth: 0.3, basalEyes: 0.15,
+  /* recovery = e_t * c_t, folded to one number per trait so the hot path does
+     no extra multiplies. e = 0.85 legs / 0.65 body / 0.15 mouth / 0.17 eyes /
+     0.92 fat. Mouth is low because GUT CONTENTS are ~68% of the bundle and are
+     worth exactly zero to a carnivore - wolves refuse rumen contents across
+     31,276 scat and stomach samples, pumas bury the rumen whole. */
+  recLegs: 3.23, recBody: 2.925, recMouth: 0.105, recEyes: 0.012, recFat: 0.92,
+  basalRef: 15,        // the 5/5/5/5 animal; movement is charged relative to it
+  sdaFrac: 0.10,       // specific dynamic action: the cost of processing a meal
+  /* HERBIVORE EFFICIENCY IS 1 AND MUST STAY 1 (Joe, 2026-09-01). Grass here is
+     not biomass with a composition, it IS the energy resource, so assimilation
+     loss is already inside the units. Charging it again double-counts. This
+     looks like an oversight otherwise, hence the note. */
+  reproReserveSteps: 25,  /* steps of body metabolism kept back before breeding.
+     Was 15. Raised because SELECTION RAISED IT: with the coefficient made
+     heritable it climbed +5-8% over 100,000 steps in every productive open
+     world, monotonically, at 24-35x the drift yardstick - and was still
+     climbing when the runs ended, so 16.2 was a floor and not an equilibrium.
+     Joe set 25. Caveat for whoever reads this next: it did NOT rise in lean
+     fragmented worlds, and it was selected under the OLD build cost, which was
+     ~2.7x cheaper - so the gradient it climbed has changed shape. */
   dangerWeight: 6.0,      // fear of a predator standing on your cell
   braveryFloor: 0.25,     // a starving animal keeps only this fraction of it
   mateWeight: 3.0,        // pull of a visible eligible mate
@@ -867,18 +914,41 @@ function perceive(w, a, idx){
     }
   }
   /* grassSpots is already the best 6, kept in order as it was built */
-  out.prey.sort((p,q)=>(preyValue(q.b)/(1+q.d))-(preyValue(p.b)/(1+p.d)));
+  out.prey.sort((p,q)=>(preyValue(q.b,P)/(1+q.d))-(preyValue(p.b,P)/(1+p.d)));
   out.prey.length=Math.min(out.prey.length,6);
   return out;
 }
-function preyValue(b){ return b.legs+b.body+b.fat; }
+/* WHAT A CARCASS IS WORTH. Each term is e_t * c_t: the fraction of that tissue
+   a predator physically reaches and digests, times what it cost to build. Fat
+   is not privileged per unit - the model fixed one trait unit = one fat unit =
+   one energy unit long ago, so the 5.7x adipose premium per GRAM is a
+   conversion this model already performed by fiat. Re-importing it would be a
+   units error; if a 5.x ever appears on prey.fat, that is what happened. */
+function preyValue(b, P){
+  if(!P || P.legacyEcon) return b.legs+b.body+b.fat;
+  return P.recLegs*b.legs + P.recBody*b.body + P.recMouth*b.mouth
+       + P.recEyes*b.eyes + P.recFat*b.fat;
+}
 
 /* BASAL RATE (Joe, 2026-08-28): upkeep is charged on legs + body, not body
    alone - locomotor tissue costs something to carry even when standing
    still. Floored at 1 so nothing is free to exist. Every "steps of
    metabolism" quantity (hunger horizon, breeding reserve) reads this same
    function, so they cannot drift apart from what is actually burned. */
-function basal(a, P){ return Math.max(1, a.legs+a.body+(P?P.eyeCost:1)*a.eyes); }
+function basal(a, P){
+  if(!P || P.legacyEcon) return Math.max(1, a.legs+a.body+((P?P.eyeCost:1))*a.eyes);
+  return Math.max(1, P.basalLegs*a.legs + P.basalBody*a.body
+                   + P.basalMouth*a.mouth + P.basalEyes*a.eyes);
+}
+/* What the parents spend to make one offspring's BODY, over and above the fat
+   they hand it. Tracks tissue mass, so legs and body dominate and the gut is
+   cheap - the opposite ordering to basal, and correct: a gut is a small organ
+   that runs hot. */
+function buildCost(a, P){
+  if(!P || P.legacyEcon) return a.legs+a.body+a.mouth;
+  return P.buildLegs*a.legs + P.buildBody*a.body
+       + P.buildMouth*a.mouth + P.buildEyes*a.eyes;
+}
 
 /* what territory contests are settled on: metabolically-paid tissue, plus
    mouth at whatever weight the world gives it (default 0) */
@@ -1071,6 +1141,16 @@ function babySlot(w, idx, mom, carn){
    Linear in the predator's sensory-locomotor investment (Joe's rule):
    eyes+legs = 0 -> 0.9, eyes+legs = 20 -> 0.1. */
 function convEff(a,P){
+  /* DELETED FROM THE GAIN PATH (Joe, 2026-09-01) by returning 1. The old form
+     0.9 - 0.04*legs discounted the meal by the PREDATOR's own build, which has
+     no support anywhere in the carcass-recovery literature, and its floor of
+     0.1 sat far below anything ever measured (worst on record: 78.5% ME on
+     whole rodents; measured band 83-95%). Recovery now lives per tissue inside
+     preyValue. If a fast or sharp-eyed build should cost, it costs in basal,
+     where it does. Returning 1 leaves all three call sites reading the new
+     preyValue directly instead of needing edits. */
+  if(a.eps!==undefined) return a.eps;          // allele experiments override
+  if(!P || !P.legacyEcon) return 1.0;
   const ce=P?P.convEyes:0.04, cl=P?P.convLegs:0.04;
   return 0.9 - ce*a.eyes - cl*a.legs;
 }
@@ -1130,12 +1210,12 @@ function babyEndow(w,a){
      the honest meaning of "born alive". */
   return Math.max(P.babyFat, P.starveBelow + 2*up, steps*up);
 }
-function litterShare(w,a){ return (a.legs+a.body+a.mouth+babyEndow(w,a))/2; }
+function litterShare(w,a){ return (buildCost(a,w.P)+babyEndow(w,a))/2; }
 function reserveFloor(w,a){
   return w.P.starveBelow + w.P.reproReserveSteps*w.P.bodyCostPer*basal(a,w.P);
 }
 function reproThreshold(w,a){
-  return Math.max(a.legs+a.body+a.mouth, litterShare(w,a)+reserveFloor(w,a));
+  return Math.max(buildCost(a,w.P), litterShare(w,a)+reserveFloor(w,a));
 }
 /* 0..1 desire to be near a mate: mostly "how close am I to affording a
    litter", amplified by how long it has been. Deliberately quadratic so a
@@ -1290,13 +1370,13 @@ function act(w, a, idx){
       const ce=convEff(a,P), fr=fearAt(w,a,a.x,a.y,see.predators,h);
       let tgt=null, s=-Infinity, cp=0;
       for(const q of here){
-        const qcp=catchProb(w,q.b,a), pv=preyValue(q.b);
+        const qcp=catchProb(w,q.b,a), pv=preyValue(q.b,P);
         const risk=P.huntCost*(1-qcp)*(q.b.legs+q.b.body);
         const qs=drive*qcp*ce*pv - risk - fr;
         if(qs>s){ s=qs; tgt=q; cp=qcp; }
       }
       note('hunt', s, {prey:key(tgt.b), catchP:+cp.toFixed(3),
-                       efficiency:+ce.toFixed(3), meal:+preyValue(tgt.b).toFixed(2),
+                       efficiency:+ce.toFixed(3), meal:+preyValue(tgt.b,P).toFixed(2),
                        reach:+tgt.d.toFixed(2),
                        drive:+drive.toFixed(3), fear:+fr.toFixed(3)});
       const o={kind:'hunt', score:s, target:tgt.b};
@@ -1334,7 +1414,7 @@ function act(w, a, idx){
     const cX=CAND_X[ci], cY=CAND_Y[ci], cD=CAND_D[ci];
     let v=0;
     if(!a.carn){ for(const g of see.grassSpots) v=Math.max(v,drive*g.v/dp1(cX,cY,g.x,g.y)); }
-    else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b,a)*convEff(a,P)*preyValue(p.b)/dp1(cX,cY,p.x,p.y)); }
+    else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b,a)*convEff(a,P)*preyValue(p.b,P)/dp1(cX,cY,p.x,p.y)); }
     let mv=0;
     const mw=P.mateWeight*(questing?P.questBoost:1);
     /* LOCAL attraction stays gated on actual readiness r. Driving it with
@@ -1418,8 +1498,12 @@ function act(w, a, idx){
   if(best.kind==='graze'){
     const i=a.y*P.W+a.x;
     w.grass[i]=Math.max(0,w.grass[i]-best.gain);
-    a.fat+=best.gain;
-    w.ledger.grazed+=best.gain;
+    /* SPECIFIC DYNAMIC ACTION: processing a meal costs 5-15% of what is in it
+       (sea lion 9.9-12.4%, mouse 3.9-9.4%). Charged here rather than in basal
+       so it scales with what was actually eaten. */
+    const sda=(P.legacyEcon?0:P.sdaFrac)*best.gain;
+    a.fat+=best.gain-sda;
+    w.ledger.grazed+=best.gain; w.ledger.burned+=sda;
   } else if(best.kind==='hunt'){
     if(w.rnd()>=catchProb(w,best.target,a)){
       /* THE HUNT FAILED. The prey fought back or got away, and the attacker
@@ -1436,8 +1520,9 @@ function act(w, a, idx){
          clock, so the mark lasts the same number of TURNS at any pace. */
       a.ateAt=w.step;
       vital(w, key(best.target), 'eaten');
-      const gain=convEff(a,P)*preyValue(best.target);
-      a.fat+=gain;
+      const gain=convEff(a,P)*preyValue(best.target,P);
+      const sdaH=(P.legacyEcon?0:P.sdaFrac)*gain;      // SDA, as for grazing
+      a.fat+=gain-sdaH; w.ledger.burned+=sdaH;
       w.ledger.predGain+=gain;                  // structure + store, x efficiency
       w.ledger.preyFatLost+=best.target.fat;    // the store the prey carried
       /* the diet ledger: what does each carnivore species actually eat */
@@ -1471,7 +1556,7 @@ function act(w, a, idx){
    parents stay above their own reserve threshold. */
 function mate(w, mom, dad, idx){
   const P=w.P;
-  const build=mom.legs+mom.body+mom.mouth;                 // equal traits: same cost
+  const build=buildCost(mom,P);            // tracks tissue mass; see buildCost
   /* NOTE: computed from the mother, and correct because identity guarantees
      both parents share her strategy - a baby that flips f/F by mutation is
      provisioned at its parents' rate, which is what a real parent could
@@ -1633,7 +1718,17 @@ function step(w){
        animal still runs its machinery. Without this, mouth-fed grazing
        made B0 a zero-upkeep body plan and two of three test seeds hit the
        population cap on it (measured). */
-    const burn = P.moveCostPer*a.moved + P.bodyCostPer*basal(a,P);
+    /* Movement is charged in proportion to the animal's OWN basal, not flat.
+       Within an individual, loaded animals' oxygen use rises in exact
+       proportion to supported mass (Taylor 1980); across species cost per metre
+       scales M^0.72 while BMR scales M^0.69, so the two cancel and locomotion
+       is a near-constant fraction of an animal's own basal at every size. The
+       old flat charge was backwards - ruinous for a small animal, trivial for
+       a large one. */
+    const bs = basal(a,P);
+    const burn = (P.legacyEcon ? P.moveCostPer*a.moved
+                               : P.moveCostPer*a.moved*(bs/P.basalRef))
+               + P.bodyCostPer*bs;
     a.fat -= burn; w.ledger.burned += burn;
     a.moved=0;                    // paid for; the next step starts from zero
     a.age++;
