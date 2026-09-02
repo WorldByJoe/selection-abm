@@ -35,11 +35,14 @@
      2026-08-28): a big mouth is not a big silhouette, and while it sat in
      this term it made mouth a triple liability, which is what drove every
      observed regime flip one way.
-   - CONVERSION EFFICIENCY: a kill yields the prey's legs+body+fat scaled
-     by the predator's trophic efficiency, 0.9 - 0.04 x (eyes + legs):
-     90% for a sessile, sightless ambusher, 10% for a maximal courser.
-     Sensory and locomotor machinery is paid for out of every meal, which
-     carves an ambush-vs-pursuit axis into the predator guild.
+   - CARCASS RECOVERY (2026-09-01, replacing the old conversion efficiency):
+     a kill yields a FRACTION OF WHAT EACH PREY TISSUE COST TO BUILD -
+     3.23/legs, 2.925/body, 0.105/mouth, 0.012/eyes, 0.92/fat - the fraction
+     being accessibility x digestibility from the carcass-utilisation
+     literature. Nothing about the PREDATOR's own build enters: the old
+     0.9 - 0.04 x (eyes+legs) discount had no support anywhere and its floor
+     sat below any measured recovery. Energy balance is structural: a
+     predator can never get more out of a body than went into it.
 
    MATING needs a partner on the same or adjacent cell with EQUAL legs,
    body, mouth, eyes AND THE SAME DIET (Joe, 2026-08-28: a carnivore and an
@@ -123,21 +126,27 @@ const DEFAULTS = {
      spread survives normalisation (1 = full 1%..10% span). */
   /* --- TERRITORY (Joe, 2026-08-28) ------------------------------------
      A cell holds at most cellCap animals. A bigger animal - size is
-     legs+body+mouth+eyes, the whole organism - can evict a smaller one and
-     take its place; the loser is pushed to the nearest cell with room.
+     legs+body at the shipped weights (sizeEyes 0, sizeMouth 0) - can evict
+     a smaller one and take its place; the loser is pushed to the nearest
+     cell with room. NOTE (audit 2026-09-01): size enters ONLY as a filter
+     on which cells are offered as movement candidates - there is no
+     dominance term in any score, so an animal never prefers a cell because
+     it could take it. Territory is an outcome here, not a behaviour.
      Eviction needs STRICTLY greater size, so trait-identical animals
      cannot displace each other, which lets a mated pair hold a good pixel
      against each other while still yielding to anything larger. This is
      the first benefit size has ever had in the model.
 
-     WHAT COUNTS AS SIZE: legs + body + eyes, and mouth only at weight
-     sizeMouth. Joe, 2026-08-28: mouth left the contest because it was the
-     cheapest way to be big - it costs nothing in basal metabolism, so
-     selection bought territory with mouth and left body pinned at 1. With
-     mouth out, every unit of contest size is metabolically paid for, and
-     body is the one that also earns a gape refuge. (A mouth does carry
-     teeth, so sizeMouth 1 restores it to the brawl if that reading is
-     preferred - it is a weight, not a boolean.) */
+     WHAT COUNTS AS SIZE: legs + body, with eyes and mouth at weights
+     sizeEyes and sizeMouth, both 0 since 2026-08-29. Joe, 2026-08-28: mouth
+     left the contest because it was the cheapest way to be big - it cost
+     nothing in basal metabolism, so selection bought territory with mouth
+     and left body pinned at 1. THAT REASON EXPIRED 2026-09-01: mouth now
+     costs 0.3/step to run and 0.7/unit to build. Build cost tracks tissue
+     mass, and on that basis the mass-implied weights are legs 1.0 : body
+     1.18 : mouth 0.18 : eyes 0.02 - so legs+body is already a fair mass
+     proxy and the only real gap is mouth at ~0.18 instead of 0. Whether to
+     restore it is an open decision; sizeMouth is the knob. */
   cellCap: 2,
   sizeMouth: 0,
   capPerDiet: true,       /* Joe, 2026-08-28: the cap is counted SEPARATELY
@@ -1155,9 +1164,12 @@ function convEff(a,P){
   return 0.9 - ce*a.eyes - cl*a.legs;
 }
 
-/* Joe's concealment rule: the prey's size S = legs+body+mouth+fat against
-   the grass on the cell it stands in. Hidden (grass >= S): 10%. Exposed:
-   rises linearly to 100% on bare ground. */
+/* Joe's concealment rule: the prey's silhouette S = legs+body+fat (mouth was
+   struck 2026-08-28 - a big mouth is not a big silhouette) against the grass
+   on the cell it stands in. Hidden (grass >= S): 10%. Exposed: rises
+   linearly to 100% on bare ground. Fat is in S, so a well-provisioned
+   animal is a visible one - the only cost fat carries besides being worth
+   eating. */
 /* Bulk for the intraguild contest: the whole feeding apparatus, deliberately
    a different measure from sizeOf (territory), preyValue (the meal) and basal
    (the running cost), because this is about physically overpowering another
