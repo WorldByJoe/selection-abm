@@ -829,7 +829,7 @@ function newWorld(seed, opts){
         legs:sp.legs, body:sp.body, mouth:sp.mouth, eyes:sp.eyes,
         bigF:!!sp.bigF,
         fat:P.initFat, carn:!!sp.carn, age:0, moved:0,
-        founder:sp.name||('corner'+(i+1)) });
+        founder:sp.name||('corner'+(i+1)), _sid:undefined, _rrStep:-1, _rrFat:NaN, _rr:0 });
     }
   });
   w.aliveCount=w.animals.length;   // mate()'s population guard reads this
@@ -904,6 +904,7 @@ for(let R=0;R<=10;R++){
    ones, so ties resolve toward staying close. */
 /* Scratch for the candidate list - sized for the largest legs radius the
    trait ceiling allows, and grown defensively if that ever changes. */
+const SPX=new Int16Array(8), SPY=new Int16Array(8), SPV=new Float64Array(8);
 let CAND_X=new Int16Array(1024), CAND_Y=new Int16Array(1024),
     CAND_D=new Float64Array(1024);
 const MOVE_OFFS=[];
@@ -920,7 +921,19 @@ for(let R=0;R<=10;R++){
 
 /* What this animal can see: the best grass cells, every visible animal
    split into prey / eligible mates / predators-of-me. */
+/* The five-trait identity as one interned integer, assigned lazily the first
+   time an animal is looked at and never changed (traits are fixed at birth).
+   Diet is deliberately NOT part of it: the kin test keeps diet as its own
+   clause, gated on dietAssort, exactly as before. */
+const SID=new Map();
+function sidOf(a){
+  if(a._sid!==undefined) return a._sid;
+  const k=a.legs+','+a.body+','+a.mouth+','+a.eyes+','+(a.bigF?1:0);
+  let id=SID.get(k); if(id===undefined){ id=SID.size+1; SID.set(k,id); }
+  return (a._sid=id);
+}
 function perceive(w, a, idx){
+  const sa=sidOf(a);
   const P=w.P, R=a.eyes, out={ grassSpots:[], prey:[], mates:[], kin:[], predators:[] };
   for(const o of OFFS[R]){
     const x=a.x+o.dx, y=a.y+o.dy;
@@ -948,8 +961,7 @@ function perceive(w, a, idx){
     for(const b of cell){ if(b===a||b.dead) continue;
       if(a.carn && (P.gapeStrict ? a.mouth>b.body : a.mouth>=b.body)) out.prey.push({b,x,y,d});
       if(b.carn && (P.gapeStrict ? b.mouth>a.body : b.mouth>=a.body)) out.predators.push({b,x,y,d});
-      if(b.legs===a.legs && b.body===a.body && b.mouth===a.mouth && b.eyes===a.eyes
-         && b.bigF===a.bigF && (!P.dietAssort || b.carn===a.carn)){
+      if(sidOf(b)===sa && (!P.dietAssort || b.carn===a.carn)){
         /* kin are worth walking toward even when neither side is ready yet -
            losing sight of your own species is how a corner population goes
            reproductively extinct at fixed count (measured: three of four
@@ -1295,8 +1307,17 @@ function mateUrge(w,a,h){
 }
 
 function reproReady(w,a){
+  /* MEMOISED (2026-09-02). reproThreshold depends only on the animal's traits,
+     the world's constants and its FAT, and every neighbour that sees this
+     animal as kin asks the same question - measured 14.5 evaluations per
+     animal per step. Keyed on (step, fat): fat changes at graze, hunt, mate
+     and metabolism, and any change invalidates the key, so the value returned
+     is always exactly the one the uncached form would compute. */
+  if(a._rrStep===w.step && a._rrFat===a.fat) return a._rr;
   const t=reproThreshold(w,a);
-  return a.fat<=t ? 0 : Math.min(1,(a.fat-t)/t);
+  const v = a.fat<=t ? 0 : Math.min(1,(a.fat-t)/t);
+  a._rrStep=w.step; a._rrFat=a.fat; a._rr=v;
+  return v;
 }
 
 /* Fear of a spot: every visible predator repels it, nearer ones more.
@@ -1467,13 +1488,20 @@ function act(w, a, idx){
   }
 
   /* movement options */
+  /* per-animal constants, computed once instead of once per candidate: the
+     numerators of every food and mate term. Same operands in the same order,
+     so bit-identical to the inline form (measured on a 3,000-step diff). */
+  const nSpot = a.carn ? see.prey.length : see.grassSpots.length;
+  for(let k=0;k<nSpot;k++){
+    if(!a.carn){ const g=see.grassSpots[k]; SPX[k]=g.x; SPY[k]=g.y; SPV[k]=drive*g.v; }
+    else { const p=see.prey[k]; SPX[k]=p.x; SPY[k]=p.y; SPV[k]=drive*catchProb(w,p.b,a)*convEff(a,P)*preyValue(p.b,P); }
+  }
+  const mw=P.mateWeight*(questing?P.questBoost:1), mwr=mw*r;
   for(let ci=0; ci<nc; ci++){
     const cX=CAND_X[ci], cY=CAND_Y[ci], cD=CAND_D[ci];
     let v=0;
-    if(!a.carn){ for(const g of see.grassSpots) v=Math.max(v,drive*g.v/dp1(cX,cY,g.x,g.y)); }
-    else       { for(const p of see.prey)      v=Math.max(v,drive*catchProb(w,p.b,a)*convEff(a,P)*preyValue(p.b,P)/dp1(cX,cY,p.x,p.y)); }
+    for(let k=0;k<nSpot;k++) v=Math.max(v, SPV[k]/dp1(cX,cY,SPX[k],SPY[k]));
     let mv=0;
-    const mw=P.mateWeight*(questing?P.questBoost:1);
     /* LOCAL attraction stays gated on actual readiness r. Driving it with
        the (much larger) urge instead emptied every world: a fed animal's
        food score falls to ~0 by satiety, so an always-on kin pull became
@@ -1483,7 +1511,7 @@ function act(w, a, idx){
        The urge earns its keep in the SEARCH rule below instead, where it
        moves lonely animals that can see no kin at all - which is the case
        a rare lineage is actually in. */
-    if(r>0) for(const m of see.kin) mv=Math.max(mv, mw*r/dp1(cX,cY,m.x,m.y));
+    if(r>0) for(const m of see.kin) mv=Math.max(mv, mwr/dp1(cX,cY,m.x,m.y));
     /* nothing of its own kind in view: travel the chosen bearing, and
        prefer a long stride along it to a short one */
     if(questing && !see.kin.length && a.legs>0 && cD>0){
@@ -1673,7 +1701,7 @@ function mate(w, mom, dad, idx){
     const baby={ id:w.nextId++, x:spot.x, y:spot.y,
       legs:bt.legs, body:bt.body, mouth:bt.mouth, eyes:bt.eyes,
       bigF:bt.bigF, fat:endow, carn:bt.carn, age:0, moved:0, sinceMate:0,
-      founder:mom.founder };
+      founder:mom.founder, _sid:undefined, _rrStep:-1, _rrFat:NaN, _rr:0 };
     if(mutated){
       const ck=key(baby);
       if(ck!==key(mom)){
@@ -1911,7 +1939,7 @@ function makeAnimal(w, spec){
     legs:cl(spec.legs,0), body:cl(spec.body,1),
     mouth:cl(spec.mouth,1), eyes:cl(spec.eyes,0), bigF:!!spec.bigF,
     fat:spec.fat===undefined?8:+spec.fat, carn:!!spec.carn,
-    age:0, moved:0, sinceMate:0, founder:spec.name||'placed' };
+    age:0, moved:0, sinceMate:0, founder:spec.name||'placed', _sid:undefined, _rrStep:-1, _rrFat:NaN, _rr:0 };
   w.animals.push(a); return a;
 }
 global.Eco = { newWorld, step, stats, DEFAULTS, key, parseKey, makeAnimal,
