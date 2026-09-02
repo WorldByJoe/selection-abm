@@ -344,6 +344,12 @@ const DEFAULTS = {
      being blind or sharp-eyed is independent of build. Enforced on mutation
      and on random founders, so no illegal animal ever exists. */
   allometrySpan: 2,   // SHIPPED 2026-08-29 - see the A/B note below
+  /* LEGS FREE (Joe, 2026-09-02): the span now binds only BODY and MOUTH - "if
+     you have a big mouth you need a big body to hold a big digestive system".
+     Legs (mobility) and eyes (perception) are unconstrained: an animal may
+     be a sprinter or sessile, sharp-eyed or blind, on any body. Under
+     legacyEcon the old three-way window is kept so the comparator is exact. */
+  allometryLegsFree: true,
 
   /* huntCost: what a FAILED hunt costs the attacker, per unit of the prey's
      defensive mass (legs + body). 0 is the historical free-attack model.
@@ -402,6 +408,15 @@ const DEFAULTS = {
      against 85). The mechanism worked; the evolutionary answer to it undid
      the benefit. Kept as a parameter. */
   huntReach: 0,
+  /* STRIKE REACH BY EYES (Joe, 2026-09-02): a hunter can strike prey up to
+     max(1, hunter.eyes - prey.eyes) cells away. Sharp-eyed hunters reach
+     further; sharp-eyed prey shrink that reach; nobody strikes past an
+     adjacent cell without out-seeing the target. This makes eyes an
+     evolutionary arms race between the guilds - the thing the model lacked -
+     and it answers the measured bottleneck: with reach 0, 85% of carnivores
+     stood NEXT to visible food they could not strike (batch 3 snapshots). Off,
+     or under legacyEcon, the flat huntReach above is used. */
+  huntReachByEyes: true,
 
   convEyes: 0,         // SHIPPED 2026-08-29 - sight is no longer taxed
   /* 2x2 at 6,500 steps, 3 seeds, moderate world (grassMax 50, growth 2-18%).
@@ -601,7 +616,16 @@ const DEFAULTS = {
    legs/body drawn from 1..6. */
 function legalise(P, sp){
   if(!P.allometrySpan) return sp;
+  const legsFree = P.allometryLegsFree && !P.legacyEcon;
   for(let g=0; g<24; g++){
+    if(legsFree){
+      /* only body and mouth are coupled: raise whichever is lower */
+      if(Math.abs(sp.body-sp.mouth)<=P.allometrySpan) break;
+      if(sp.body<sp.mouth && sp.body<10) sp.body++;
+      else if(sp.mouth<sp.body && sp.mouth<10) sp.mouth++;
+      else break;
+      continue;
+    }
     const hi=Math.max(sp.legs,sp.body,sp.mouth), lo=Math.min(sp.legs,sp.body,sp.mouth);
     if(hi-lo<=P.allometrySpan) break;
     if(sp.legs===lo && sp.legs<10) sp.legs++;
@@ -983,6 +1007,7 @@ function sizeOf(a,P){
    another; eyes are exempt. Always true when the rule is off. */
 function allometric(P, legs, body, mouth){
   if(!P.allometrySpan) return true;
+  if(P.allometryLegsFree && !P.legacyEcon) return Math.abs(body-mouth)<=P.allometrySpan;
   const hi=Math.max(legs,body,mouth), lo=Math.min(legs,body,mouth);
   return (hi-lo)<=P.allometrySpan;
 }
@@ -1114,16 +1139,23 @@ function clearPath(w, x0, y0, x1, y1){
    around it when huntReach allows. Gape is applied here, so the caller gets
    only animals it could actually swallow. */
 function reachPrey(w, a, idx){
-  const P=w.P, R=Math.max(0, P.huntReach|0), out=[];
+  const P=w.P, out=[];
+  /* reach is per PAIR when huntReachByEyes: scan out to this hunter's best case
+     (a prey with eyes 0) and test each target against its own eyes */
+  const byEyes = !!P.huntReachByEyes && !P.legacyEcon;
+  const R = byEyes ? Math.max(1, a.eyes|0) : Math.max(0, P.huntReach|0);
   for(let dy=-R;dy<=R;dy++) for(let dx=-R;dx<=R;dx++){
     const d=Math.sqrt(dx*dx+dy*dy);
     if(d>R+1e-9) continue;
     const x=a.x+dx, y=a.y+dy;
     if(x<0||y<0||x>=P.W||y>=P.H) continue;
     const cell=idx[y*P.W+x]; if(!cell) continue;
+    /* a strike does not pass through rock, any more than a step does */
+    if(byEyes && d>0 && w.blocked && !clearPath(w,a.x,a.y,x,y)) continue;
     for(const b of cell){
       if(b===a||b.dead) continue;
       if(!(P.gapeStrict ? a.mouth>b.body : a.mouth>=b.body)) continue;
+      if(byEyes && d>Math.max(1, a.eyes-b.eyes)+1e-9) continue;
       out.push({b,x,y,d});
     }
   }
@@ -1789,12 +1821,16 @@ function stats(w){
      actually looks like. One extra array push per animal plus a sort per
      species; measured at well under a millisecond for 25,000 animals, and
      stats() runs once a frame, not once a step. */
-  const ages=new Map();
+  const ages=new Map(), fsteps=new Map();
   for(const a of w.animals){
     const k=key(a);
     sp.set(k,(sp.get(k)||0)+1);
     let a2=ages.get(k); if(!a2){ a2=[]; ages.set(k,a2); }
     a2.push(a.age);
+    /* F: how many steps of its OWN upkeep this animal's fat would last. The
+       reserve it breeds at is 25 of these; starvation is at 0. (Joe, 2026-09-02) */
+    let f2=fsteps.get(k); if(!f2){ f2=[]; fsteps.set(k,f2); }
+    f2.push(a.fat/(w.P.bodyCostPer*basal(a,w.P)));
     if(a.carn)carn++; else herb++;
     fat+=a.fat;
   }
@@ -1809,6 +1845,12 @@ function stats(w){
       ag.sort((x,y)=>x-y);
       const m=ag.length>>1;
       e.medianAge = ag.length%2 ? ag[m] : Math.round((ag[m-1]+ag[m])/2);
+    }
+    const fs=fsteps.get(k);
+    if(fs && fs.length){
+      fs.sort((x,y)=>x-y);
+      const m2=fs.length>>1;
+      e.F = Math.round(fs.length%2 ? fs[m2] : (fs[m2-1]+fs[m2])/2);
     }
     /* Vital rates over the last closed window (fall back to the window still
        filling, so a fresh world is not blank). R is births per step as a
@@ -1833,8 +1875,16 @@ function stats(w){
     }
     return e;
   });
+  /* EFFECTIVE NUMBER OF SPECIES - the Hill number of order 1, exp(Shannon):
+       H = -sum p_i ln p_i ;  D1 = e^H
+     the number of EQUALLY common species that would carry the same entropy.
+     One species plus mutant noise reads ~1 however many keys exist; ten
+     equal species read 10. Order 0 is the raw count shown beside it. */
+  let Hs=0; const nTot=w.animals.length||1;
+  for(const n of sp.values()){ const p=n/nTot; if(p>0) Hs-=p*Math.log(p); }
+  const hill=Math.exp(Hs);
   return { step:w.step, animals:w.animals.length, herb, carn,
-           species:sp.size, grass:Math.round(g),
+           species:sp.size, hill:+hill.toFixed(2), grass:Math.round(g),
            grassPerCell:+(g/w.grass.length).toFixed(2),
            vegetatedPct:Math.round(100*gCells/w.grass.length),
            births:w.births, starved:w.starved, eaten:w.eaten, mutants:w.mutants,

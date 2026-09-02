@@ -30,10 +30,13 @@
   /* "R 1.2%" for a species row, or '' when the window holds no births yet. */
   function vitalR(e) { return e.R === undefined ? '' : 'R ' + rate(e.R); }
 
-  /* "S93 B6 P1" - how this species' recent deaths divide between starvation,
-     background mortality and predation. Always sums to 100. */
+  /* "F12 S93 B6 P1" - F is the median member's fat measured in STEPS OF ITS
+     OWN UPKEEP (breeding needs 25 of them in reserve, starvation is 0), then
+     how this species' recent deaths divide between starvation, background
+     mortality and predation; S+B+P always sums to 100. (F: Joe, 2026-09-02) */
   function vitalDeaths(e) {
-    return e.S === undefined ? '' : 'S' + e.S + ' B' + e.B + ' P' + e.P;
+    const f = e.F === undefined ? '' : 'F' + e.F + ' ';
+    return e.S === undefined ? f.trim() : f + 'S' + e.S + ' B' + e.B + ' P' + e.P;
   }
 
   /* The settings this world was given - the same fields the lab exposes on its
@@ -96,7 +99,9 @@
           + Math.round(P.wallSpan*100) + '% of the map with ' + P.wallGaps + ' gaps'
         : 'open ground \u2014 no barriers'],
       ['HUNTING', 'gape ' + (P.gapeStrict ? 'mouth > body' : 'mouth \u2265 body')
-        + ' \u00b7 strike reach ' + P.huntReach + (P.huntReach ? ' cells' : ' (own square only)')
+        + ' \u00b7 strike reach ' + ((P.huntReachByEyes && !P.legacyEcon)
+             ? 'max(1, hunter eyes \u2212 prey eyes) cells'
+             : P.huntReach + (P.huntReach ? ' cells' : ' (own square only)'))
         /* the old wording read as though the yield WAS 0.9-0.04*legs, and did
            not say whose legs. A kill yields a FRACTION of the carcass, and the
            carcass is the prey's legs + body + fat. */
@@ -115,9 +120,10 @@
              + ' can reach and digest. Gut contents are worth nothing')
         + ' \u00b7 a carnivore needs a size edge of ' + P.intraguildGap
         + ' (legs+body+mouth) to take another carnivore'],
-      ['ALLOMETRY', P.allometrySpan
-        ? 'legs, body and mouth within ' + P.allometrySpan + ' of each other (eyes unconstrained)'
-        : 'no allometric constraint'],
+      ['ALLOMETRY', !P.allometrySpan ? 'no allometric constraint'
+        : (P.allometryLegsFree && !P.legacyEcon)
+          ? 'body and mouth within ' + P.allometrySpan + ' of each other \u2014 a big gut needs a big body; legs and eyes unconstrained'
+          : 'legs, body and mouth within ' + P.allometrySpan + ' of each other (eyes unconstrained)'],
       ['LIFE', 'mutation ' + pct(P.mutationP) + ' · background death ' +
         pct(P.mortality) + ' per step · repro reserve ' + P.reproReserveSteps +
         ' steps · gape ' + (P.gapeStrict ? 'mouth > body' : 'mouth ≥ body') +

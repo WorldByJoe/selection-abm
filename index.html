@@ -502,7 +502,11 @@
       <input type="hidden" id="carnMateBoost" value="1">
       <input type="hidden" id="huntCost" value="0">
       <input type="hidden" id="allometrySpan" value="2">
+      <div class="field"><label for="allometryLegsFree">legs unconstrained <span class="u">span binds body &amp; mouth only</span></label>
+        <input type="checkbox" id="allometryLegsFree" checked></div>
       <input type="hidden" id="sizeEyes" value="0">
+      <div class="field"><label for="huntReachByEyes">strike reach = eyes gap <span class="u">max(1, hunter eyes &minus; prey eyes)</span></label>
+        <input type="checkbox" id="huntReachByEyes" checked></div>
       <input type="hidden" id="huntReach" value="0">
       <div class="field"><label for="wallCount">wall ridges <span class="u">0 = open ground</span></label>
         <input type="number" id="wallCount" value="0" min="0" max="20" step="1"></div>
@@ -532,7 +536,11 @@
       is zero when they are the same size (legs+body+mouth) and rises to its
       full concealment-limited value once it is this many units bigger &mdash;
       so a species can never eat itself, and newborns are safe from their
-      parents.</div>
+      parents. <b>Strike reach</b> is how far a hunter can take prey without
+      moving: with the eyes rule it is max(1, hunter eyes &minus; prey eyes),
+      so sharp eyes reach further and sharp-eyed prey are harder to reach.
+      The <b>allometry span</b> couples body and mouth &mdash; a big digestive
+      system needs a big body to hold it &mdash; while legs and eyes are free.</div>
   </fieldset>
 
   <fieldset><legend>energy economics</legend>
@@ -834,7 +842,7 @@ function draw(){
 
   document.getElementById('stat').textContent=seed+' · t'+s.step;
   document.getElementById('pop').textContent=
-    s.animals.toLocaleString()+' ('+s.species+' species, '+s.carn+' carnivores)';
+    s.animals.toLocaleString()+' ('+s.species+' species \u00b7 '+s.hill.toFixed(1)+' effective, '+s.carn+' carnivores)';
   document.getElementById('grass').textContent=s.grassPerCell+'/cell · '+s.vegetatedPct+'% vegetated';
   document.getElementById('pace').textContent=LAB.speeds[speed]+(paused?' · PAUSED':'');
   const sp=document.getElementById('sp');
@@ -1040,6 +1048,8 @@ document.getElementById('go').onclick=()=>{
       buildMouth:num('buildMouth'), buildEyes:num('buildEyes'),
       questLitters:num('questLitters'), carnMateBoost:num('carnMateBoost'),
       huntCost:num('huntCost'), allometrySpan:num('allometrySpan'),
+      huntReachByEyes:document.getElementById('huntReachByEyes').checked,
+      allometryLegsFree:document.getElementById('allometryLegsFree').checked,
       sizeEyes:num('sizeEyes'),
       mortality:num('mortality'), huntReach:num('huntReach'),
       wallCount:num('wallCount'), wallGaps:num('wallGaps'),
