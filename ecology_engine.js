@@ -289,8 +289,21 @@ const DEFAULTS = {
      can build - an absolute refuge handed over by the trait ceiling, not
      earned. Five of ten 500k-step runs escaped into it and ran every trait
      to the ceiling. gapeStrict:false relaxes the test to mouth >= body, so
-     the largest predator can still take the largest prey. */
-  gapeStrict: true,
+     the largest predator can still take the largest prey.
+
+     SWITCHED TO >= ON 2026-09-01, measured. Carnivores are diet-flip mutants
+     of the herbivores, so a fresh carnivore carries its ancestor's mouth. In
+     the failing A/B seed the dominant herbivore went L4.B5.M6 -> L4.B6.M6 at
+     t~20,000: carnivores fell 174 -> 3 and stayed there for 80,000 steps,
+     while explain-mode showed every carnivore seeing ZERO gape-eligible prey
+     among 3,000-4,000 fully exposed herbivores. Across 48 runs, 13 had a
+     dominant with mouth <= body and carried a median 5 carnivores against 47
+     elsewhere; at mouth == body exactly, 0.3% of the prey base was edible
+     under > and 100% under >=. The original reason for the strict form -
+     newborn cannibalism - is handled by intraguildGap (catchProb is exactly 0
+     between equal-sized carnivores): measured 0.12% carnivore-on-carnivore
+     kills under >= versus 0.16% under >. */
+  gapeStrict: false,
   /* PER-SPECIES VITAL RATES (Joe, 2026-08-29). The wall shows a birth rate R
      and the share of deaths owed to starvation / background / predation for
      each common species. Cumulative totals would be dominated by ancient

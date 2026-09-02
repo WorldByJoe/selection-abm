@@ -465,7 +465,7 @@
     </table>
     <div class="hint">Eight populations &mdash; a grazer and a hunter for each
       of the four corners, two populations per corner. Traits 0&ndash;10; body
-      and mouth must be at least 1. A hunter needs a mouth wider than its
+      and mouth must be at least 1. A hunter needs a mouth at least as wide as its
       prey's body or it cannot eat at all, and any lineage you want to
       survive needs a count of at least two. Set a count to 0 to leave that
       slot empty.</div>
@@ -498,7 +498,6 @@
       <input type="hidden" id="cellCap" value="2">
       <input type="hidden" id="capPerDiet" value="on" data-cb="1">
       <input type="hidden" id="sizeMouth" value="0">
-      <input type="hidden" id="eyeCost" value="1">
       <input type="hidden" id="questLitters" value="0">
       <input type="hidden" id="carnMateBoost" value="1">
       <input type="hidden" id="huntCost" value="0">
@@ -509,8 +508,6 @@
         <input type="number" id="wallCount" value="0" min="0" max="20" step="1"></div>
       <div class="field"><label for="wallGaps">gaps per wall</label>
         <input type="number" id="wallGaps" value="2" min="0" max="8" step="1"></div>
-      <input type="hidden" id="convEyes" value="0">
-      <input type="hidden" id="convLegs" value="0.04">
       <input type="hidden" id="intraguildGap" value="3">
       <div class="field"><label for="mortality">background death <span class="u">chance per step</span></label>
         <input type="number" id="mortality" value="0.002" min="0" max="0.05" step="0.001"></div>
@@ -530,6 +527,52 @@
         <input type="number" id="disturbGrass" value="0.6" min="0" max="1" step="0.05"></div>
     </div>
     <div class="hint">Provisioning is a species trait: f spends little on each newborn and F spends a lot, and the two do not interbreed. Disturbance hits a random patch on that interval - most events are small, a few are very large. Killing animals but sparing the grass rewards whoever recolonises fastest; stripping the grass too forces the colonists to live on what their parents gave them.</div>
+  </fieldset>
+
+  <fieldset><legend>energy economics</legend>
+    <div class="fields">
+      <div class="field"><label for="legacyEcon">legacy economics <span class="u">pre&#8209;2026&#8209;09&#8209;01</span></label>
+        <input type="checkbox" id="legacyEcon"></div>
+      <div class="field"><label for="gapeStrict">gape must exceed body <span class="u">strict &gt;</span></label>
+        <input type="checkbox" id="gapeStrict"></div>
+      <div class="field"><label for="reproReserveSteps">repro reserve <span class="u">steps of upkeep</span></label>
+        <input type="number" id="reproReserveSteps" value="25" min="0" max="100" step="1"></div>
+      <div class="field"><label for="sdaFrac">digestion cost <span class="u">fraction of a meal</span></label>
+        <input type="number" id="sdaFrac" value="0.10" min="0" max="0.5" step="0.01"></div>
+      <div class="field"><label for="moveCostPer">movement cost <span class="u">per cell, &times; own basal</span></label>
+        <input type="number" id="moveCostPer" value="0.02" min="0" max="0.2" step="0.005"></div>
+      <div class="field"><label for="basalLegs">basal: legs <span class="u">per unit per step</span></label>
+        <input type="number" id="basalLegs" value="0.75" min="0" max="5" step="0.05"></div>
+      <div class="field"><label for="basalBody">basal: body</label>
+        <input type="number" id="basalBody" value="1.8" min="0" max="5" step="0.05"></div>
+      <div class="field"><label for="basalMouth">basal: mouth</label>
+        <input type="number" id="basalMouth" value="0.3" min="0" max="5" step="0.05"></div>
+      <div class="field"><label for="basalEyes">basal: eyes</label>
+        <input type="number" id="basalEyes" value="0.15" min="0" max="5" step="0.05"></div>
+      <div class="field"><label for="buildLegs">build: legs <span class="u">per unit, at birth</span></label>
+        <input type="number" id="buildLegs" value="3.8" min="0" max="20" step="0.1"></div>
+      <div class="field"><label for="buildBody">build: body</label>
+        <input type="number" id="buildBody" value="4.5" min="0" max="20" step="0.1"></div>
+      <div class="field"><label for="buildMouth">build: mouth</label>
+        <input type="number" id="buildMouth" value="0.7" min="0" max="20" step="0.1"></div>
+      <div class="field"><label for="buildEyes">build: eyes</label>
+        <input type="number" id="buildEyes" value="0.07" min="0" max="20" step="0.01"></div>
+      <input type="hidden" id="eyeCost" value="1">
+      <input type="hidden" id="convEyes" value="0">
+      <input type="hidden" id="convLegs" value="0.04">
+    </div>
+    <div class="hint">Every step an animal burns <b>basal</b> = 0.75&times;legs +
+      1.8&times;body + 0.3&times;mouth + 0.15&times;eyes, tenths of a fat unit per
+      basal unit; a newborn costs its parents <b>build</b> = 3.8&times;legs +
+      4.5&times;body + 0.7&times;mouth + 0.07&times;eyes plus its starting fat; and
+      a kill returns a fixed fraction of what each prey tissue cost to build
+      (legs 0.85, body 0.65, mouth 0.15, eyes 0.17, fat 0.92). All from mammal
+      tissue physiology, 2026&#8209;09&#8209;01. <b>Legacy economics</b> restores
+      the older flat costs and the predator-side conversion discount; the three
+      &ldquo;legacy only&rdquo; knobs act only then. The gape is
+      <b>mouth &ge; body</b> unless <b>strict</b> is ticked; strict was found to
+      starve derived carnivores whenever the dominant herbivore's mouth equalled
+      its body.</div>
   </fieldset>
 
   <fieldset><legend>the run</legend>
@@ -970,6 +1013,14 @@ document.getElementById('go').onclick=()=>{
       cellCap:num('cellCap'),
       capPerDiet:(document.getElementById('capPerDiet').value === 'on'),
       sizeMouth:num('sizeMouth'), eyeCost:num('eyeCost'),
+      legacyEcon:document.getElementById('legacyEcon').checked,
+      gapeStrict:document.getElementById('gapeStrict').checked,
+      reproReserveSteps:num('reproReserveSteps'), sdaFrac:num('sdaFrac'),
+      moveCostPer:num('moveCostPer'),
+      basalLegs:num('basalLegs'), basalBody:num('basalBody'),
+      basalMouth:num('basalMouth'), basalEyes:num('basalEyes'),
+      buildLegs:num('buildLegs'), buildBody:num('buildBody'),
+      buildMouth:num('buildMouth'), buildEyes:num('buildEyes'),
       questLitters:num('questLitters'), carnMateBoost:num('carnMateBoost'),
       huntCost:num('huntCost'), allometrySpan:num('allometrySpan'),
       sizeEyes:num('sizeEyes'),
