@@ -57,8 +57,29 @@
       ['TERRITORY', 'per-cell cap ' + P.cellCap +
         (P.capPerDiet ? ' counted per diet' : ' shared') +
         ' · size = legs + body' + (P.sizeEyes ? ' + ' + P.sizeEyes + '×eyes' : '')
-        + (P.sizeMouth ? ' + ' + P.sizeMouth + '×mouth' : '') +
-        ' · eye upkeep ' + P.eyeCost],
+        + (P.sizeMouth ? ' + ' + P.sizeMouth + '×mouth' : '')
+        + (P.legacyEcon ? ' · eye upkeep ' + P.eyeCost : '')],
+      /* The three energy equations, stated on the wall in the same terms the
+         engine uses. They were derived from mammal tissue physiology and they
+         changed on 2026-09-01; the panel said the OLD ones for a while after
+         the engine said the new ones, which is exactly the failure this row
+         exists to prevent. Read the coefficients from P so they cannot drift
+         from the model again. */
+      ['METABOLISM', P.legacyEcon
+        ? 'each step costs legs + body + ' + P.eyeCost + '×eyes, plus '
+          + P.moveCostPer + ' per unit moved'
+        : 'each step burns ' + P.basalLegs + '×legs + ' + P.basalBody
+          + '×body + ' + P.basalMouth + '×mouth + ' + P.basalEyes + '×eyes'
+          + ' \u2014 the gut is a small organ that runs hot, so mouth costs'
+          + ' more to run than to build. Moving costs ' + P.moveCostPer
+          + ' per unit distance, scaled by the animal\u2019s own upkeep, and'
+          + ' digesting a meal costs ' + Math.round(P.sdaFrac*100) + '% of it'],
+      ['CONSTRUCTION', P.legacyEcon
+        ? 'a newborn costs its parents legs + body + mouth, plus its starting fat'
+        : 'a newborn costs its parents ' + P.buildLegs + '×legs + ' + P.buildBody
+          + '×body + ' + P.buildMouth + '×mouth + ' + P.buildEyes + '×eyes,'
+          + ' plus the fat they endow it with \u2014 tissue mass, so legs and'
+          + ' body dominate'],
       ['PROVISIONING', 'f gives a newborn ' + P.provLowSteps +
         ' steps of its own upkeep, F gives ' + P.provHighSteps +
         ' \u2014 species-identifying, so f and F do not interbreed'],
@@ -79,12 +100,22 @@
         /* the old wording read as though the yield WAS 0.9-0.04*legs, and did
            not say whose legs. A kill yields a FRACTION of the carcass, and the
            carcass is the prey's legs + body + fat. */
-        + ' \u00b7 a kill yields (prey legs+body+fat) \u00d7 (0.9 \u2212 '
-        + P.convLegs + '\u00d7 the HUNTER\u2019s legs'
-        + (P.convEyes ? ' \u2212 ' + P.convEyes + '\u00d7 its eyes' : '') + ')'
+        + (P.legacyEcon
+           ? ' \u00b7 a kill yields (prey legs+body+fat) \u00d7 (0.9 \u2212 '
+             + P.convLegs + '\u00d7 the HUNTER\u2019s legs'
+             + (P.convEyes ? ' \u2212 ' + P.convEyes + '\u00d7 its eyes' : '') + ')'
+           /* Recovery is now a fraction of what each tissue COST TO BUILD, so a
+              predator can never get more out of a carcass than went into it.
+              Nothing about the hunter's own build enters - no measurement
+              anywhere relates carcass recovery to the predator's legs or eyes. */
+           : ' \u00b7 a kill yields ' + P.recLegs + '\u00d7 the prey\u2019s legs + '
+             + P.recBody + '\u00d7 body + ' + P.recMouth + '\u00d7 mouth + '
+             + P.recEyes + '\u00d7 eyes + ' + P.recFat + '\u00d7 its fat'
+             + ' \u2014 what a carcass cost to build, times the share a predator'
+             + ' can reach and digest. Gut contents are worth nothing')
         + ' \u00b7 a carnivore needs a size edge of ' + P.intraguildGap
         + ' (legs+body+mouth) to take another carnivore'],
-      ['BUILD', P.allometrySpan
+      ['ALLOMETRY', P.allometrySpan
         ? 'legs, body and mouth within ' + P.allometrySpan + ' of each other (eyes unconstrained)'
         : 'no allometric constraint'],
       ['LIFE', 'mutation ' + pct(P.mutationP) + ' · background death ' +
