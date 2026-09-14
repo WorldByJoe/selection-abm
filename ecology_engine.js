@@ -1,5 +1,6 @@
 /* ============================================================================
-   ecology_engine.js - community ecology + evolution, agent-based. Joe's spec,
+   ecology_engine.js · v1.0 · 2026-09-13
+   community ecology + evolution, agent-based. Joe's spec,
    2026-08-28. PURE SIMULATION: no DOM, no clocks, seeded randomness - the
    same file runs in the wall page and under the jsc test harness, so the
    ecology can be balance-tested at thousands of steps per second before a
@@ -91,7 +92,11 @@
      mateWeight        - mate finding vs predation: how strongly a visible
                          eligible mate attracts, competing directly with
                          fear in the same score.
-   ========================================================================= */
+   =========================================================================
+
+   CHANGED
+     v1.0  versioning starts here; this file predates the scheme
+*/
 (function (global) {
 'use strict';
 

@@ -1,5 +1,6 @@
 /* ============================================================================
-   ecology_ui.js - display helpers shared by every Selection front end.
+   ecology_ui.js · v1.0 · 2026-09-13
+   display helpers shared by every Selection front end.
 
    WHY THIS FILE EXISTS. The wall page and the OneDrive lab both show the same
    two things: the per-species vital rates, and a card naming the settings the
@@ -10,7 +11,11 @@
 
    Nothing in this file simulates anything - it only formats. The model stays
    in ecology_engine.js.
-   ========================================================================= */
+   =========================================================================
+
+   CHANGED
+     v1.0  versioning starts here; this file predates the scheme
+*/
 (function (global) {
   'use strict';
 
