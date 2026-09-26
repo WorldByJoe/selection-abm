@@ -1,5 +1,5 @@
 /* ============================================================================
-   ecology_engine.js · v1.0 · 2026-09-13
+   ecology_engine.js · v1.5 · 2026-09-23
    community ecology + evolution, agent-based. Joe's spec,
    2026-08-28. PURE SIMULATION: no DOM, no clocks, seeded randomness - the
    same file runs in the wall page and under the jsc test harness, so the
@@ -95,7 +95,24 @@
    =========================================================================
 
    CHANGED
-     v1.0  versioning starts here; this file predates the scheme
+     v1.5  FOCUS scene says which neighbours had already taken their turn
+           when the followed animal decided, and which things done TO it came
+           before that - so the close-up can play every move between two of
+           its decisions at once. Read-only, like the rest of the hook
+     v1.4  an animal knows only what it can SEE: beyond its sight a square it
+           could move to is judged for hiding by the average grass in sight,
+           and may turn out to be rock, walled off or full - the move then
+           fails and the turn is spent
+     v1.3  food it must walk to COUNTS THE TURN the walk takes: one action per
+           step, so a meal reached by moving is at least a turn later than
+           eating now, and is scored one unit of delay further away
+     v1.2  animals choose OPTIMALLY: the random wander override is gone,
+           searching is a scored option (worth up to one step of upkeep
+           when a need is unmet in sight); walking is priced in decisions
+           exactly as it is charged (scaled by the animal's own basal)
+     v1.1  FOCUS: w.focus names one animal whose decision is recorded in full
+           (every option, where everything it saw stood, what came of it) for
+           the close-up page. Read-only - a run is identical with it on or off
 */
 (function (global) {
 'use strict';
@@ -777,6 +794,15 @@ function newWorld(seed, opts){
                        buildLost:0, babyGot:0, starvedFat:0, grassGrown:0 },
               explain:false,       // when true, every decision is recorded
               whys:[],             // this step's decision records
+              /* FOCUS (the close-up page): the id of ONE animal to record in
+                 full, or null. focusWhy is its own decision this step (null
+                 if it never got a turn), focusEvents what other animals did
+                 TO it, focusBurn what metabolism charged it at the end of the
+                 step. focusWhy.scene also marks which neighbours had already
+                 taken their turn (near[].done) and how many focusEvents came
+                 before it decided (nEv). All three are rewritten every step;
+                 none of it feeds back into the simulation. */
+              focus:null, focusWhy:null, focusEvents:[], focusBurn:null,
               preyLog:new Map(),   // predator species -> prey species -> kills
               /* the phylogeny record: every mutant birth is a speciation
                  EVENT - child species, parent species, when. A consumer
@@ -911,7 +937,7 @@ for(let R=0;R<=10;R++){
    trait ceiling allows, and grown defensively if that ever changes. */
 const SPX=new Int16Array(8), SPY=new Int16Array(8), SPV=new Float64Array(8);
 let CAND_X=new Int16Array(1024), CAND_Y=new Int16Array(1024),
-    CAND_D=new Float64Array(1024);
+    CAND_D=new Float64Array(1024), CAND_U=new Uint8Array(1024);   // U: beyond its sight
 const MOVE_OFFS=[];
 for(let R=0;R<=10;R++){
   const list=[];
@@ -939,11 +965,15 @@ function sidOf(a){
 }
 function perceive(w, a, idx){
   const sa=sidOf(a);
-  const P=w.P, R=a.eyes, out={ grassSpots:[], prey:[], mates:[], kin:[], predators:[] };
+  const P=w.P, R=a.eyes, out={ grassSpots:[], prey:[], mates:[], kin:[], predators:[], meanGrass:0 };
+  /* the average grass over the ground it can see (rock excluded): all it
+     has to go on about squares beyond its sight (see "WHAT IT CAN KNOW") */
+  let gSum=0, gN=0;
   for(const o of OFFS[R]){
     const x=a.x+o.dx, y=a.y+o.dy;
     if(x<0||y<0||x>=P.W||y>=P.H) continue;
     const d=o.d;
+    if(!(w.blocked && w.blocked[y*P.W+x])){ gSum+=w.grass[y*P.W+x]; gN++; }
     if(!a.carn){
       const g=w.grass[y*P.W+x];
       if(g>=1){
@@ -976,6 +1006,7 @@ function perceive(w, a, idx){
       }
     }
   }
+  out.meanGrass = gN ? gSum/gN : 0;
   /* grassSpots is already the best 6, kept in order as it was built */
   out.prey.sort((p,q)=>(preyValue(q.b,P)/(1+q.d))-(preyValue(p.b,P)/(1+p.d)));
   out.prey.length=Math.min(out.prey.length,6);
@@ -1152,6 +1183,21 @@ function clearPath(w, x0, y0, x1, y1){
   return true;
 }
 
+/* Rock the animal can SEE on the straight way to (x1,y1): the cells clearPath
+   walks, counting only those within its sight. Unseen rock does not count -
+   it finds that out by trying. */
+function seenRockOnPath(w, a, x1, y1){
+  const blk=w.blocked;
+  if(!blk) return false;
+  const P=w.P, dx=x1-a.x, dy=y1-a.y, n=Math.max(Math.abs(dx),Math.abs(dy)), e2=a.eyes*a.eyes+1e-9;
+  for(let i=1;i<=n;i++){
+    const x=Math.round(a.x+dx*i/n), y=Math.round(a.y+dy*i/n);
+    const ox=x-a.x, oy=y-a.y;
+    if(ox*ox+oy*oy<=e2 && blk[y*P.W+x]) return true;
+  }
+  return false;
+}
+
 /* Prey within striking distance: the predator's own square, plus the ring
    around it when huntReach allows. Gape is applied here, so the caller gets
    only animals it could actually swallow. */
@@ -1252,9 +1298,10 @@ function catchProb(w,prey,hunter){
 }
 /* the same exposure, evaluated for ME if I stood at (px,py) - what fear
    and hiding decisions are made of */
-function exposureAt(w,a,px,py){
+function exposureAt(w,a,px,py,gAssumed){
   const S=a.legs+a.body+a.fat;
-  const g=w.grass[py*w.P.W+px];
+  /* gAssumed: for a square it cannot see, the grass it EXPECTS there */
+  const g=gAssumed===undefined ? w.grass[py*w.P.W+px] : gAssumed;
   return g>=S ? 0.10 : 1 - 0.9*(g/Math.max(S,1e-9));
 }
 
@@ -1328,7 +1375,7 @@ function reproReady(w,a){
 /* Fear of a spot: every visible predator repels it, nearer ones more.
    A starving animal keeps only braveryFloor of its fear (risk parameter 2):
    certain starvation outweighs possible predation. */
-function fearAt(w, a, px, py, predators, h){
+function fearAt(w, a, px, py, predators, h, gAssumed){
   if(!predators.length) return 0;
   let f=0;
   for(const p of predators) f += 1/dp1(px,py,p.b.x,p.b.y);
@@ -1336,7 +1383,7 @@ function fearAt(w, a, px, py, predators, h){
   /* concealment scales the threat: the same predator two cells away is
      background noise from tall grass and a death sentence on bare dirt -
      which is exactly what sends hunted herbivores diving into cover */
-  return f * exposureAt(w,a,px,py) * w.P.dangerWeight * brave;
+  return f * exposureAt(w,a,px,py,gAssumed) * w.P.dangerWeight * brave;
 }
 
 /* ---- one animal's decision ----------------------------------------------
@@ -1383,7 +1430,10 @@ function act(w, a, idx){
      an animal decided from and every option it weighed, so a microscope can
      show not just what happened but WHY. Costs nothing when the flag is
      off - a single boolean test per animal per step. */
-  const why = w.explain ? {
+  /* FOCUS: the one animal named by w.focus gets the same record whether or
+     not explain mode is on, and more of it - see the focal block below. */
+  const focal = w.focus!==null && a.id===w.focus;
+  const why = (w.explain || focal) ? {
     step:w.step+1, id:a.id, x:a.x, y:a.y, carn:a.carn, fat:+a.fat.toFixed(3),
     traits:{legs:a.legs, body:a.body, mouth:a.mouth, eyes:a.eyes},
     basal:basal(a,P), upkeep:+(P.bodyCostPer*basal(a,P)).toFixed(3),
@@ -1399,6 +1449,31 @@ function act(w, a, idx){
   } : null;
   const note = why ? (kind,score,parts)=>why.options.push(
       {kind, score:+score.toFixed(3), parts}) : ()=>{};
+  if(focal){
+    /* THE SCENE AS THIS ANIMAL MET IT. Animals act one at a time in a random
+       order, so by this animal's turn some of its neighbours have already
+       moved, grazed or died this step. A display that drew the start-of-step
+       map would show it fleeing a hunter that is no longer where it saw one.
+       So the grass and every animal within 24 cells are copied HERE, at the
+       moment of decision, plus the positions of everything it perceived.
+       done = that neighbour has already taken its turn this step (acted, or
+       had it spent as a mate); nEv = how many of focusEvents happened before
+       this moment. Together they split the step at this animal's decision,
+       so a display can put every move between two of its decisions in one
+       stage (v1.5). */
+    const B=24, x0=Math.max(0,a.x-B), x1=Math.min(P.W-1,a.x+B),
+          y0=Math.max(0,a.y-B), y1=Math.min(P.H-1,a.y+B), gw=x1-x0+1;
+    const grass=new Float32Array(gw*(y1-y0+1)), near=[];
+    for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+      const i=y*P.W+x; grass[(y-y0)*gw+(x-x0)]=w.grass[i];
+      const c=idx[i]; if(c) for(const b of c) if(!b.dead) near.push({id:b.id,x,y,done:b.acted?1:0});
+    }
+    why.scene={ x0, y0, w:gw, h:y1-y0+1, grass, near, nEv:w.focusEvents.length };
+    const at=o=>({id:o.b.id, x:o.x, y:o.y, d:o.d});
+    why.seen={ grass:see.grassSpots.map(g=>({x:g.x, y:g.y, v:g.v, d:g.d})),
+               predators:see.predators.map(at), prey:see.prey.map(at),
+               kin:see.kin.map(at), mates:see.mates.map(at) };
+  }
   if(questing){
     if(a.qt===undefined || a.qt<=0){ a.qdir=w.rnd()*Math.PI*2; a.qt=P.questHold; }
     a.qt--;
@@ -1412,14 +1487,30 @@ function act(w, a, idx){
      array of {x,y,d} objects per animal per step - at legs 10 that was ~315
      short-lived objects per animal, every step. CAND_* are module-level and
      only ever grow. */
+  /* WHAT IT CAN KNOW ABOUT A SQUARE IT COULD MOVE TO (Joe, 2026-09-23:
+     "close all three leaks"). Within its sight it knows everything: who is
+     standing there, whether it is rock, whether rock blocks the way. Beyond
+     its sight it used to know the same three things for free - a short-
+     sighted animal fled into tall grass it could not see (close-up page,
+     L3 B5 M6 E1). Now, beyond sight:
+       - rock it has SEEN on the way still rules a square out;
+       - anything else is offered, whoever is on it - if it turns out to be
+         rock, walled off or full of animals it cannot push aside, the move
+         fails when it gets there and the turn is spent (execute, below);
+       - how well it would hide there is judged from the average grass it
+         can see (CAND_U marks these squares for fearAt).
+     An animal whose eyes reach at least as far as its legs sees every square
+     it could move to, and decides exactly as before. */
   let nc=0;
-  CAND_X[0]=a.x; CAND_Y[0]=a.y; CAND_D[0]=0; nc=1;
+  CAND_X[0]=a.x; CAND_Y[0]=a.y; CAND_D[0]=0; CAND_U[0]=0; nc=1;
   if(a.legs>0){
     for(const o of MOVE_OFFS[a.legs]){
       const nx=a.x+o.dx, ny=a.y+o.dy;
       if(nx<0||ny<0||nx>=P.W||ny>=P.H) continue;
-      if(entryFor(w,idx,a,nx,ny) && clearPath(w,a.x,a.y,nx,ny)){
-        CAND_X[nc]=nx; CAND_Y[nc]=ny; CAND_D[nc]=o.d; nc++;
+      const unseen = o.d > a.eyes+1e-9;
+      if(unseen ? !seenRockOnPath(w,a,nx,ny)
+                : (entryFor(w,idx,a,nx,ny) && clearPath(w,a.x,a.y,nx,ny))){
+        CAND_X[nc]=nx; CAND_Y[nc]=ny; CAND_D[nc]=o.d; CAND_U[nc]=unseen?1:0; nc++;
       }
     }
   }
@@ -1451,16 +1542,18 @@ function act(w, a, idx){
       /* weigh EVERY reachable target and take the best, rather than whichever
          happened to be first in the cell list */
       const ce=convEff(a,P), fr=fearAt(w,a,a.x,a.y,see.predators,h);
-      let tgt=null, s=-Infinity, cp=0;
+      let tgt=null, s=-Infinity, cp=0, rk=0;
       for(const q of here){
         const qcp=catchProb(w,q.b,a), pv=preyValue(q.b,P);
         const risk=P.huntCost*(1-qcp)*(q.b.legs+q.b.body);
         const qs=drive*qcp*ce*pv - risk - fr;
-        if(qs>s){ s=qs; tgt=q; cp=qcp; }
+        if(qs>s){ s=qs; tgt=q; cp=qcp; rk=risk; }
       }
-      note('hunt', s, {prey:key(tgt.b), catchP:+cp.toFixed(3),
+      /* target and risk ride along so a display can rebuild the score as
+         drive x catchP x efficiency x meal - risk - fear, and name the prey */
+      note('hunt', s, {prey:key(tgt.b), target:tgt.b.id, catchP:+cp.toFixed(3),
                        efficiency:+ce.toFixed(3), meal:+preyValue(tgt.b,P).toFixed(2),
-                       reach:+tgt.d.toFixed(2),
+                       reach:+tgt.d.toFixed(2), risk:+rk.toFixed(3),
                        drive:+drive.toFixed(3), fear:+fr.toFixed(3)});
       const o={kind:'hunt', score:s, target:tgt.b};
       if(!bestAct || s>bestAct.score) bestAct=o;
@@ -1492,6 +1585,52 @@ function act(w, a, idx){
     }
   }
 
+  /* SEARCH (Joe, 2026-09-23: "fix the illogical wandering and treat the
+     animals as having optimized behavior"). This replaces the old WANDER
+     GATE, which overrode the scores with a random square whenever the best
+     option was worth less than one step of upkeep and a need was unmet - so
+     a lonely hunter abandoned three prey it could have caught, and a lonely
+     grazer wandered toward a hunter in plain sight (both seen in the
+     close-up page). Searching is now an option like any other, scored in
+     the same currency and taken only when it beats everything in sight:
+       - it has value only while a need cannot be met by anything in view:
+         appetite > 0.2 with no food seen, or mate urge > 0.35 with none of
+         its kind seen - the old gate's two conditions, unchanged;
+       - a full stride along its heading is worth one step of its own upkeep
+         at full need, a shorter or oblique step proportionally less, a step
+         backwards nothing;
+       - the heading is random - it cannot know where unseen things are -
+         but held for questHold steps so a search covers ground instead of
+         milling, and re-drawn at once when nothing reachable lies ahead;
+       - fear and walking are subtracted exactly as for any other move, so a
+         search never walks into a hunter it can see.
+     Search must be worth SOMETHING, measured before: an isolated animal
+     with no value on unseen ground is a statue (a solo L2 B1 M6 E0 starved
+     on a crumb of grass, 12 seeds of 12) and a scattered species cannot
+     reunite (three of four founder species froze for 2,000 steps). */
+  const urge=mateUrge(w,a,h);
+  const needFood=(drive>0.2 && !(a.carn ? see.prey.length : see.grassSpots.length)) ? drive : 0;
+  const needMate=(urge>0.35 && !see.kin.length) ? Math.min(1,urge) : 0;
+  const need=Math.max(needFood,needMate);
+  const searchWorth = (a.legs>0 && nc>1) ? need*P.bodyCostPer*basal(a,P) : 0;
+  if(searchWorth>0){
+    if(a.st===undefined || a.st<=0){ a.sdir=w.rnd()*Math.PI*2; a.st=P.questHold; }
+    let ahead=0; const hx=Math.cos(a.sdir), hy=Math.sin(a.sdir);
+    for(let ci=1;ci<nc;ci++) ahead=Math.max(ahead,
+      ((CAND_X[ci]-a.x)*hx+(CAND_Y[ci]-a.y)*hy)/CAND_D[ci]);
+    if(ahead<0.5){ a.sdir=w.rnd()*Math.PI*2; a.st=P.questHold; }  // walled in: turn
+    a.st--;
+  } else a.st=0;
+  if(why) why.search={ need:+need.toFixed(3), food:+needFood.toFixed(3),
+    mate:+needMate.toFixed(3), worth:+searchWorth.toFixed(3),
+    heading:searchWorth>0 ? +a.sdir.toFixed(3) : null, hold:searchWorth>0 ? a.st : 0 };
+  /* WALKING IS PRICED AS IT IS CHARGED. The metabolism loop bills a move at
+     moveCostPer x distance x (own basal / basalRef); decisions used to price
+     it at moveCostPer x distance alone, so a big animal under-estimated its
+     walking and a small one over-estimated it (the close-up page showed a
+     small hunter deciding at 0.020 per square and paying 0.009). */
+  const walkPer = P.legacyEcon ? P.moveCostPer : P.moveCostPer*basal(a,P)/P.basalRef;
+
   /* movement options */
   /* per-animal constants, computed once instead of once per candidate: the
      numerators of every food and mate term. Same operands in the same order,
@@ -1502,10 +1641,26 @@ function act(w, a, idx){
     else { const p=see.prey[k]; SPX[k]=p.x; SPY[k]=p.y; SPV[k]=drive*catchProb(w,p.b,a)*convEff(a,P)*preyValue(p.b,P); }
   }
   const mw=P.mateWeight*(questing?P.questBoost:1), mwr=mw*r;
+  /* FOOD COUNTS THE TURN IT TAKES (Joe, 2026-09-23). An animal takes ONE
+     action per step - move, eat, strike or mate - so food it is not eating
+     this turn is at least one turn away. The old term, v/(1+d) with d the
+     squares from the candidate to the food, scored a step ONTO grass exactly
+     like eating that grass now, so a sliver of fear or a whisker more grass
+     next door pulled animals off sure meals. Now every food value except
+     "eat what is underfoot, now" carries one more unit of delay:
+         eat here now            v / 1          (the graze / hunt option)
+         stay, food elsewhere    v / (2 + d)    (it still has to go there)
+         move, food at d beyond  v / (2 + d)    (this turn is the walk)
+     The stay candidate must be delayed too: a stay that kept the old
+     v/(1+d) pull would tie a move onto the food and, winning ties, leave an
+     animal eating crumbs beside a full square. */
   for(let ci=0; ci<nc; ci++){
     const cX=CAND_X[ci], cY=CAND_Y[ci], cD=CAND_D[ci];
     let v=0;
-    for(let k=0;k<nSpot;k++) v=Math.max(v, SPV[k]/dp1(cX,cY,SPX[k],SPY[k]));
+    for(let k=0;k<nSpot;k++){
+      const now = cD===0 && SPX[k]===a.x && SPY[k]===a.y;     // underfoot, eaten this turn
+      v=Math.max(v, SPV[k]/(dp1(cX,cY,SPX[k],SPY[k]) + (now?0:1)));
+    }
     let mv=0;
     /* LOCAL attraction stays gated on actual readiness r. Driving it with
        the (much larger) urge instead emptied every world: a fed animal's
@@ -1524,33 +1679,21 @@ function act(w, a, idx){
       const dot=(dx*Math.cos(a.qdir)+dy*Math.sin(a.qdir))/len;
       if(dot>0) mv=Math.max(mv, P.questDrive*dot*(len/Math.max(1,a.legs)));
     }
-    const fr=fearAt(w,a,cX,cY,see.predators,h);
-    const s = v + mv - fr - P.moveCostPer*cD;
+    /* the search term: progress along the heading, as a share of a full
+       stride, times what searching is worth right now (zero when nothing
+       it needs is missing from view) */
+    let sv=0;
+    if(searchWorth>0 && cD>0){
+      const prog=((cX-a.x)*Math.cos(a.sdir)+(cY-a.y)*Math.sin(a.sdir))/a.legs;
+      if(prog>0) sv=searchWorth*prog;
+    }
+    const fr=fearAt(w,a,cX,cY,see.predators,h, CAND_U[ci]?see.meanGrass:undefined), walk=walkPer*cD;
+    const s = v + mv + sv - fr - walk;
     /* the zero-distance candidate is standing still, not moving */
     if(why) note(cD===0 ? 'stay' : ('move '+cX+','+cY), s,
-      {food:+v.toFixed(3), mate:+mv.toFixed(3), fear:+fr.toFixed(3),
-       travel:+(P.moveCostPer*cD).toFixed(3), dist:+cD.toFixed(2)});
+      {food:+v.toFixed(3), mate:+mv.toFixed(3), search:+sv.toFixed(3), fear:+fr.toFixed(3),
+       travel:+walk.toFixed(3), dist:+cD.toFixed(2), unseen:CAND_U[ci]});
     if(s>best.score) best={kind:'move', score:s, toi:ci};
-  }
-
-  /* An animal whose needs cannot be answered by anything in sight WANDERS
-     instead of standing still: hungry with no grass in view, or ready to
-     breed with no kin in view. Without this, an isolated animal is a
-     statue, and reunion of a scattered species is impossible. */
-  /* THE WANDER GATE used to open only at an absolute zero score (1e-6). A
-     hungry animal standing on a sub-unit crumb of grass scores a positive but
-     useless graze (~0.05), so the gate stayed shut and it starved in place
-     without taking a single step - measured: a solo L2 B1 M6 E0 at the wall's
-     regrowEvery 5 travels 0 cells and dies at step 56, 12 seeds of 12. The
-     gate now opens whenever the best thing in reach is not worth one step of
-     the animal's own metabolism, which is the honest bar for "nothing here". */
-  const idleFloor = P.bodyCostPer*basal(a,P);
-  if(best.score<=idleFloor && a.legs>0 && nc>1 &&
-     ( (drive>0.2 && (a.carn? !see.prey.length : !see.grassSpots.length)) ||
-       (mateUrge(w,a,h)>0.35 && !see.kin.length) )){
-    /* same single rnd() draw over the same range as before, so the random
-       walk consumes the stream identically */
-    best={kind:'move', score:0, toi:1+Math.floor(w.rnd()*(nc-1))};
   }
 
   /* A WINNING ZERO-DISTANCE CANDIDATE means "this is the best cell to stand
@@ -1573,12 +1716,19 @@ function act(w, a, idx){
 
   if(why){
     /* keep the field of options readable: the winner plus the nine next
-       best, which is enough to see what it was weighed against */
+       best, which is enough to see what it was weighed against. The FOCAL
+       animal keeps all of them - the close-up page paints every reachable
+       cell with its score. */
     why.options.sort((p,q)=>q.score-p.score);
-    why.options=why.options.slice(0,10);
+    why.nOptions=why.options.length;
+    if(!focal) why.options=why.options.slice(0,10);
     why.chose=best.kind; why.chosenScore=+best.score.toFixed(3);
-    a._why=why; w.whys.push(why);
+    a._why=why;
+    if(w.explain) w.whys.push(why);   // step() empties whys only in explain mode
+    if(focal) w.focusWhy=why;
   }
+  /* what came of the choice - filled in below, focal animal only */
+  const out = focal ? (why.outcome={kind:best.kind}) : null;
 
   /* ---- execute ----
      a.moved is NOT reset here: it is accumulated by relocate() (including
@@ -1594,16 +1744,27 @@ function act(w, a, idx){
     const sda=(P.legacyEcon?0:P.sdaFrac)*best.gain;
     a.fat+=best.gain-sda;
     w.ledger.grazed+=best.gain; w.ledger.burned+=sda;
+    if(out){ out.gain=best.gain; out.sda=sda; }
   } else if(best.kind==='hunt'){
-    if(w.rnd()>=catchProb(w,best.target,a)){
+    /* the strike is one draw against the catch probability. Held in named
+       values (same draw, same order as the old inline test) so the focal
+       record can show the dice as well as the verdict. */
+    const roll=w.rnd(), cpx=catchProb(w,best.target,a);
+    if(out){ out.target=best.target.id; out.roll=roll; out.catchP=cpx; out.caught=roll<cpx; }
+    if(roll>=cpx){
       /* THE HUNT FAILED. The prey fought back or got away, and the attacker
          pays for it in proportion to what it took on. Booked to the ledger as
          burned fat so the mass balance still closes. */
       if(P.huntCost>0){
         const hurt=Math.min(a.fat, P.huntCost*(best.target.legs+best.target.body));
         a.fat-=hurt; w.ledger.burned+=hurt; w.huntsFailed++;
+        if(out) out.hurt=hurt;
       }
+      if(best.target.id===w.focus)
+        w.focusEvents.push({kind:'escaped', by:a.id, roll, catchP:cpx});
     } else {
+      if(best.target.id===w.focus)
+        w.focusEvents.push({kind:'eaten', by:a.id, roll, catchP:cpx});
       best.target.dead='eaten'; w.eaten++;
       /* stamp the HUNTER with the step it last ate, so a display can flash the
          predator itself rather than the ground. A step count, not a wall
@@ -1613,6 +1774,7 @@ function act(w, a, idx){
       const gain=convEff(a,P)*preyValue(best.target,P);
       const sdaH=(P.legacyEcon?0:P.sdaFrac)*gain;      // SDA, as for grazing
       a.fat+=gain-sdaH; w.ledger.burned+=sdaH;
+      if(out){ out.gain=gain; out.sda=sdaH; }
       w.ledger.predGain+=gain;                  // structure + store, x efficiency
       w.ledger.preyFatLost+=best.target.fat;    // the store the prey carried
       /* the diet ledger: what does each carnivore species actually eat */
@@ -1621,10 +1783,16 @@ function act(w, a, idx){
       m.set(qk,(m.get(qk)||0)+1);
     }
   } else if(best.kind==='mate'){
+    const n0=madeQueue.length, f0=a.fat;
     mate(w, a, best.partner, idx);
+    if(out){ out.partner=best.partner.id; out.paid=f0-a.fat;
+             out.babies=madeQueue.slice(n0).map(b=>b.id); }
   } else if(best.kind==='move' && CAND_D[best.toi]>0){
     const tx=CAND_X[best.toi], ty=CAND_Y[best.toi];
-    const e=entryFor(w,idx,a,tx,ty);
+    if(out){ out.to=[tx,ty]; out.unseen=CAND_U[best.toi]; }
+    /* a square it could not see is only found out on arrival: unseen rock
+       on the way, or a square that is rock or full, and the move fails */
+    const e=clearPath(w,a.x,a.y,tx,ty) ? entryFor(w,idx,a,tx,ty) : null;
     if(e){
       const ev=e.evict;            // ENTRY is reused; hold what we need
       if(ev){
@@ -1633,11 +1801,15 @@ function act(w, a, idx){
            fails and the challenger stays put - no animal is deleted by a
            territorial loss. */
         const spot=freeCellNear(w,idx,tx,ty,3,ev.carn,sizeOf(ev,P));
-        if(spot){ relocate(w,idx,ev,spot.x,spot.y); w.evictions++; }
-        else { a.acted=true; return; }
+        if(spot){ relocate(w,idx,ev,spot.x,spot.y); w.evictions++;
+          if(out) out.evicted=ev.id;
+          if(ev.id===w.focus)
+            w.focusEvents.push({kind:'evicted', by:a.id, to:[spot.x,spot.y]});
+        }
+        else { if(out) out.blocked=true; a.acted=true; return; }
       }
       relocate(w,idx,a,tx,ty);                 // relocate() bills the distance
-    }
+    } else if(out) out.blocked=true;
   }
   a.acted=true;
 }
@@ -1723,6 +1895,11 @@ function mate(w, mom, dad, idx){
   }
   /* only spend the partner's turn if the pairing actually produced young */
   if(made>0) dad.acted=true;
+  /* the focal animal can be the PARTNER here, chosen by another: then this
+     is its whole step, so the record comes from this side of the pairing */
+  if(made>0 && dad.id===w.focus)
+    w.focusEvents.push({kind:'matedBy', partner:mom.id, paid:made*perParent,
+                        babies:madeQueue.slice(-made).map(b=>b.id)});
 }
 let madeQueue=[];
 
@@ -1769,6 +1946,8 @@ function disturb(w){
 /* ---- one world step ------------------------------------------------------ */
 function step(w){
   const P=w.P;
+  /* the focal records describe ONE step; clear them before anything happens */
+  if(w.focus!==null){ w.focusWhy=null; w.focusEvents=[]; w.focusBurn=null; }
   /* disturbance lands BEFORE anyone acts, so survivors get to respond to the
      world it leaves rather than to the one that no longer exists */
   disturb(w);
@@ -1816,9 +1995,14 @@ function step(w){
        old flat charge was backwards - ruinous for a small animal, trivial for
        a large one. */
     const bs = basal(a,P);
-    const burn = (P.legacyEcon ? P.moveCostPer*a.moved
-                               : P.moveCostPer*a.moved*(bs/P.basalRef))
-               + P.bodyCostPer*bs;
+    const walk = P.legacyEcon ? P.moveCostPer*a.moved
+                              : P.moveCostPer*a.moved*(bs/P.basalRef);
+    const burn = walk + P.bodyCostPer*bs;
+    /* the focal animal's bill, itemised before a.moved is cleared. Since
+       v1.2 the travel term it decided with (walkPer in act) is this same
+       price, so what it expected to pay and what it pays agree. */
+    if(w.focus!==null && a.id===w.focus)
+      w.focusBurn={ upkeep:P.bodyCostPer*bs, walk, moved:a.moved, basal:bs };
     a.fat -= burn; w.ledger.burned += burn;
     a.moved=0;                    // paid for; the next step starts from zero
     a.age++;
